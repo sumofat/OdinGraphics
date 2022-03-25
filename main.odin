@@ -42,8 +42,8 @@ main :: proc(){
 	render.init(windows.HWND(window_data.hwnd))
 	for{
 		handle_msgs(&window_data)
-		render.RenderTick()
 	}
+
 	using render
 	render.RenderTick()
 }

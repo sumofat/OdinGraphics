@@ -12,11 +12,18 @@ import fmt "core:fmt"
 base_device_context: ^D3D11.IDeviceContext
 render_target_view : ^D3D11.IRenderTargetView
 swapchain: ^DXGI.ISwapChain1
+selected_renderer : Renderer
 RenderTick :: proc(){
 	base_device_context->OMSetRenderTargets(1,&render_target_view,nil)
 	clear_color := [4]f32{0,0,1,1}
 	base_device_context->ClearRenderTargetView(render_target_view,&clear_color)
+
+	selected_renderer.execute()
 	swapchain->Present(1,0)
+}
+render_init ::  proc(){
+	
+	init_renderers()
 }
 
 init :: proc(hwnd : windows.HWND){
@@ -103,5 +110,6 @@ init :: proc(hwnd : windows.HWND){
 	viewport.MaxDepth = MAX_DEPTH
 
 	base_device_context->RSSetViewports(1,&viewport)	
+	render_init()
 }
 
