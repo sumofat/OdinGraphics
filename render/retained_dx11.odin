@@ -28,6 +28,8 @@ adapt : ^DXGI.IAdapter
 d2 : ^DXGI.IDevice2
 global_device : Device
 
+deffered_renderer : Renderer
+
 RENDER_TYPE :: enum{
 	NONE,
 	OPENGL,
@@ -122,7 +124,6 @@ Renderer :: struct{
 	passes : con.Buffer(Pass),
 }
 
-//renderers : con.Buffer(Renderer)
 create_renderer ::  proc($T : typeid)-> Renderer{
 	using con
 	result : Renderer
@@ -143,7 +144,7 @@ create_pass ::  proc(this : ^Renderer,DT : typeid,init : proc(data : rawptr,),se
 
 init_renderers ::  proc(){
 	using con
-	deffered_renderer := create_renderer(DefferedRenderer)
+	deffered_renderer = create_renderer(DefferedRenderer)
 	create_pass(&deffered_renderer,GBufferData,gbuffer_init,gbuffer_setup,gbuffer_exec)
 
 	for pass in deffered_renderer.passes.buffer{
@@ -152,6 +153,7 @@ init_renderers ::  proc(){
 }
 
 execute_renderer ::  proc(renderer : Renderer){
+//renderers : con.Buffer(Renderer)
 	renderer_ref := renderer
 	for pass in renderer.passes.buffer{
 		pass.setup(&renderer_ref)
@@ -185,7 +187,15 @@ gbuffer_execute_dx11 ::  proc(data : rawptr){
 	/*execute commands*/
 }
 
-create_render_target_dx11 ::  proc(device : Device)-> RenderTarget{
+create_render_target_back_buffer :: proc(device : Device) -> RenderTarget{
+	result : RenderTarget
+	when RENDERER == RENDER_TYPE.DX11{
+		result = create_render_target_back_buffer_dx11(device)
+	}
+	return result
+}
+
+create_render_target_back_buffer_dx11 ::  proc(device : Device)-> RenderTarget{
 	//create render target view
 	using D3D11
 	using fmt
@@ -214,9 +224,9 @@ gbuffer_init ::  proc(data : rawptr){
 }
 
 gbuffer_setup ::  proc(data : rawptr){
-	fmt.println("GBUFF SETUP")
+	//fmt.println("GBUFF SETUP")
 	when RENDERER == RENDER_TYPE.DX11{
-		gbuffer_setup(data)
+		gbuffer_setup_dx11(data)
 	}
 }
 
@@ -251,6 +261,8 @@ init_device_render_api :: proc(hwnd : windows.HWND){
 	}else{
 		assert(false)
 	}
+	
+	create_render_target_back_buffer(new_device)
 }
 
 create_swapchain ::  proc(device : Device,hwnd : windows.HWND){

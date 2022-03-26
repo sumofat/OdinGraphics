@@ -16,15 +16,18 @@ RenderTick :: proc(){
 	clear_color := [4]f32{0,0,1,1}
 	base_device_context->ClearRenderTargetView(render_target_view,&clear_color)
 
-//	selected_renderer.execute()
+	execute_renderer(selected_renderer)
 	swapchain->Present(1,0)
 }
 
 render_init ::  proc(){
-	
 	init_renderers()
+	
+	selected_renderer = deffered_renderer
+
 	bb_size := get_backbuffer_size()
 	set_viewport(m.float2{0,0},m.float2{bb_size.x,bb_size.y})
+
 }
 
 init :: proc(hwnd : windows.HWND){
