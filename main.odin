@@ -45,7 +45,6 @@ main :: proc(){
 		using render
 		render.RenderTick()
 	}
-
 }
 
 Wnd_Proc :: proc "std" (hwnd : window32.Hwnd, uMsg : u32, wParam : window32.Wparam, lParam : window32.Lparam) -> window32.Lresult{

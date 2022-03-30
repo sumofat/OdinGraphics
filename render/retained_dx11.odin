@@ -20,15 +20,28 @@ Create a retained mode renderer
 I like how we structured it in Odin lets replicate that and clean it up here.
 */
 
-
-base_device_context: ^D3D11.IDeviceContext
-render_target_view : ^D3D11.IRenderTargetView
+@(private="file")
+def_renderer : DefferedRenderer
 swapchain: ^DXGI.ISwapChain1
+@(private="file")
 adapt : ^DXGI.IAdapter
+@(private="file")
 d2 : ^DXGI.IDevice2
-global_device : Device
+@(private="file")
+gbuffer_data : GBufferData
+@(private="file")
+render_commands : con.Buffer(RenderCommand)
+@(private="file")
+render_texture : con.Buffer(int)
 
-deffered_renderer : Renderer
+//map of all the active rednerers
+renderers_map : map[string]rawptr
+
+get_renderer ::  proc(name : string,$T : typeid)-> ^T{
+	render_ptr : ^rawptr = &renderers_map[name]
+	assert(render_ptr != nil)
+	return (^T)(render_ptr^)
+}
 
 RENDER_TYPE :: enum{
 	NONE,
@@ -40,9 +53,13 @@ RENDER_TYPE :: enum{
 }
 
 RENDERER : RENDER_TYPE  : RENDER_TYPE.DX11 
+DeviceContext :: struct{
+	ptr : rawptr,
+}
 
 Device :: struct{
 	ptr : rawptr,
+	con : DeviceContext,
 }
 
 //Commands for Renderer
@@ -70,12 +87,9 @@ RenderGeometry :: struct {
 BaseRenderCommandList :: struct{
 	list : con.Buffer(RenderCommand),
 }
-
-render_commands : con.Buffer(RenderCommand)
-render_texture : con.Buffer(int)
-
 RenderTarget :: struct{
 	ptr : rawptr,
+	tex_ptr : rawptr,
 }
 
 RenderShader :: struct{
@@ -105,13 +119,19 @@ CommandBasicDraw :: struct{
 }
 
 DefferedRenderer :: struct{
+	renderer : Renderer,
 	gbuff_data : GBufferData,
 }
 
-GBufferPass :: struct{
-	init_gbuffer_pass : proc(),
-	setup_gbuffer_pass : proc(),
-	render_gbuffer_pass : proc(),
+//Pass Definitions 
+GBufferData :: struct{
+	device : Device,
+	matrix_buffer:      ^con.Buffer(m.float4x4),
+	matrix_quad_buffer: ^con.Buffer(m.float4x4),
+	//TODO(Ray):Want to keep the concept so we have good correlation with dx12/VULKAN
+	//root_sig:           rawptr,
+	render_targets:     map[string]RenderTarget,
+	shader:             RenderShader,
 }
 
 Pass :: struct{
@@ -124,16 +144,14 @@ Renderer :: struct{
 	passes : con.Buffer(Pass),
 }
 
-create_renderer ::  proc($T : typeid)-> Renderer{
+create_renderer ::  proc()-> Renderer{
 	using con
 	result : Renderer
-	//result.passes = buf_init(Pass(GBufferData),1)
 	result.passes = buf_init(1,Pass)
-	
 	return result
 }
 
-create_pass ::  proc(this : ^Renderer,DT : typeid,init : proc(data : rawptr,),setup : proc(data : rawptr),execute : proc(data : rawptr)){
+create_pass ::  proc(this : ^Renderer,init : proc(data : rawptr,),setup : proc(data : rawptr),execute : proc(data : rawptr)){
 	using con
 	result : Pass
 	result.init = init
@@ -142,31 +160,18 @@ create_pass ::  proc(this : ^Renderer,DT : typeid,init : proc(data : rawptr,),se
 	buf_push(&this.passes,result)
 }
 
-init_renderers ::  proc(){
-	using con
-	deffered_renderer = create_renderer(DefferedRenderer)
-	create_pass(&deffered_renderer,GBufferData,gbuffer_init,gbuffer_setup,gbuffer_exec)
 
-	for pass in deffered_renderer.passes.buffer{
-		pass.init(&deffered_renderer)
+execute_renderer ::  proc(name : string,$T : typeid){
+	//TODO(Ray):We need a where clause to make sure we dont pass invalid types
+	fmt.println(name)
+	
+	renderer_to_exec : ^DefferedRenderer = get_renderer(name,T)
+	fmt.println(renderer_to_exec)
+fmt.println("\n")
+	for pass in renderer_to_exec.renderer.passes.buffer{
+		pass.setup(renderer_to_exec)
+		pass.execute(renderer_to_exec)
 	}
-}
-
-execute_renderer ::  proc(renderer : Renderer){
-//renderers : con.Buffer(Renderer)
-	renderer_ref := renderer
-	for pass in renderer.passes.buffer{
-		pass.setup(&renderer_ref)
-		pass.execute(&renderer_ref)
-	}
-}
-//Pass Definitions 
-GBufferData :: struct{
-	matrix_buffer:      ^con.Buffer(m.float4x4),
-	matrix_quad_buffer: ^con.Buffer(m.float4x4),
-	root_sig:           rawptr,
-	render_targets:     con.Buffer(RenderTarget),
-	shader:             RenderShader,
 }
 
 gbuffer_init_dx11 ::  proc(data : rawptr){
@@ -174,64 +179,51 @@ gbuffer_init_dx11 ::  proc(data : rawptr){
 	/*
 	diffuse , normal , position buffers
 	*/
+	bb_dim := get_backbuffer_size()
+	def_ren_data := (^DefferedRenderer)(data)
+	diffuse_rt := create_render_target(def_ren_data.gbuff_data.device,Format.B8G8R8A8_UNORM,bb_dim)
+	normal_rt := create_render_target(def_ren_data.gbuff_data.device,Format.B8G8R8A8_UNORM,bb_dim)
+	position_rt := create_render_target(def_ren_data.gbuff_data.device,Format.B8G8R8A8_UNORM,bb_dim)
+	def_ren_data.gbuff_data.render_targets["diffuse"] = diffuse_rt
+	def_ren_data.gbuff_data.render_targets["normal"] = normal_rt
+	def_ren_data.gbuff_data.render_targets["position"] = position_rt
 }
 
 gbuffer_setup_dx11 :: proc(data : rawptr){
-
-	/*add clear commands for all buffers
-	and for depth stencil buffer
-	*/
+	using con
+	def_data : ^DefferedRenderer = (^DefferedRenderer)(data)
+	clear_color : [4]f32 = {0,0,0,0}
+	diffuse_rt : RenderTarget = def_data.gbuff_data.render_targets["diffuse"]
+	normal_rt : RenderTarget = def_data.gbuff_data.render_targets["normal"]
+	position_rt : RenderTarget = def_data.gbuff_data.render_targets["position"]
+	assert(diffuse_rt.ptr != nil)
+	assert(normal_rt.ptr != nil)
+	assert(position_rt.ptr != nil)
+fmt.println(diffuse_rt)
+	clear_render_target(def_data.gbuff_data.device,diffuse_rt,clear_color)
+	clear_render_target(def_data.gbuff_data.device,normal_rt,clear_color)
+	clear_render_target(def_data.gbuff_data.device,position_rt,clear_color)
 }
 
 gbuffer_execute_dx11 ::  proc(data : rawptr){
 	/*execute commands*/
 }
 
-create_render_target_back_buffer :: proc(device : Device) -> RenderTarget{
-	result : RenderTarget
-	when RENDERER == RENDER_TYPE.DX11{
-		result = create_render_target_back_buffer_dx11(device)
-	}
-	return result
-}
-
-create_render_target_back_buffer_dx11 ::  proc(device : Device)-> RenderTarget{
-	//create render target view
-	using D3D11
-	using fmt
-
-	result : RenderTarget
-	back_buffer : ^ITexture2D
-	hresult := swapchain->GetBuffer(0,ITexture2D_UUID,(^rawptr)(&back_buffer))
-	if hresult != 0x0{
-		println("Failed TO Get BackBuffer 0")
-	}
-	
-	hresult = (^IDevice)(device.ptr)->CreateRenderTargetView(back_buffer,nil,&render_target_view)
-	if hresult != 0x0{
-		println("Failed TO CreateRenderTarget")
-	}
-	return result
-}
-
 gbuffer_init ::  proc(data : rawptr){
 	fmt.println("GBUFFINIT")
-	data_ref := data
-	defered_renderer := (^DefferedRenderer)(data_ref)
+	defered_renderer := (^DefferedRenderer)(data)
 	when RENDERER == RENDER_TYPE.DX11{
-		gbuffer_init_dx11(data)
+		gbuffer_init_dx11(&def_renderer)
 	}
 }
 
 gbuffer_setup ::  proc(data : rawptr){
-	//fmt.println("GBUFF SETUP")
 	when RENDERER == RENDER_TYPE.DX11{
 		gbuffer_setup_dx11(data)
 	}
 }
 
 gbuffer_exec ::  proc(data : rawptr){
-	fmt.println("GBUFF EXEC")
 	when RENDERER == RENDER_TYPE.DX11{
 		gbuffer_execute_dx11(data)
 	}
@@ -239,30 +231,20 @@ gbuffer_exec ::  proc(data : rawptr){
 
 create_device ::  proc(hwnd : windows.HWND)-> Device{
 	using D3D11
-
 	result : Device
 	when RENDERER == RENDER_TYPE.DX11{
-		creation_flags : u32
-		creation_flags |= u32(D3D11.CREATE_DEVICE_FLAG.DEBUG)//D3D11_CREATE_DEVICE_BGRA_SUPPORT
+		creation_flags : CREATE_DEVICE_FLAGS
+		creation_flags = {CREATE_DEVICE_FLAG.DEBUG}//D3D11_CREATE_DEVICE_BGRA_SUPPORT
 		new_device_ptr : ^IDevice
-		hresult := CreateDevice(nil,DRIVER_TYPE.HARDWARE,nil,nil,nil,0,SDK_VERSION,&new_device_ptr,nil,&base_device_context)
+		new_device_context : ^IDeviceContext
+		hresult := CreateDevice(nil,DRIVER_TYPE.HARDWARE,nil,creation_flags,nil,0,SDK_VERSION,&new_device_ptr,nil,&new_device_context)
 		if hresult != 0x0{
 			assert(false)
 		}
 		result.ptr = new_device_ptr
+		result.con.ptr = new_device_context
 	}
 	return result
-}
-
-init_device_render_api :: proc(hwnd : windows.HWND){
-	new_device := create_device(hwnd)
-	if new_device.ptr != nil{
-		create_swapchain(new_device,hwnd)
-	}else{
-		assert(false)
-	}
-	
-	create_render_target_back_buffer(new_device)
 }
 
 create_swapchain ::  proc(device : Device,hwnd : windows.HWND){
@@ -303,6 +285,24 @@ create_swapchain ::  proc(device : Device,hwnd : windows.HWND){
 	}
 }
 
+set_viewport_dx11 :: proc(device : Device,origin : m.float2,size : m.float2,depth : m.float2 = {D3D11.MIN_DEPTH,D3D11.MAX_DEPTH}){
+	using D3D11
+	viewport : VIEWPORT
+	viewport.TopLeftY = origin.x
+	viewport.TopLeftX = origin.y
+	viewport.Width = size.x
+	viewport.Height = size.y
+	viewport.MinDepth = depth.x
+	viewport.MaxDepth = depth.y
+	(^IDeviceContext)(device.con.ptr)->RSSetViewports(1,&viewport)	
+}
+
+set_viewport :: proc(device : Device,origin : m.float2,size : m.float2,depth : m.float2 = {D3D11.MIN_DEPTH,D3D11.MAX_DEPTH}){
+	when RENDERER == RENDER_TYPE.DX11{
+		set_viewport_dx11(device,origin,size,depth)
+	}
+}
+
 get_backbuffer_size :: proc() -> m.float2{
 	using D3D11
 	result : m.float2
@@ -314,24 +314,25 @@ get_backbuffer_size :: proc() -> m.float2{
 		result.x = f32(back_buffer_desc.Width)
 		result.y = f32(back_buffer_desc.Height)
 	}
-
 	return result
 }
 
-set_viewport :: proc(origin : m.float2,size : m.float2,depth : m.float2 = {D3D11.MIN_DEPTH,D3D11.MAX_DEPTH}){
-	when RENDERER == RENDER_TYPE.DX11{
-		set_viewport_dx11(origin,size,depth)
+init_renderers ::  proc(device : Device){
+	using con
+	renderers_map = make(map[string]rawptr)
+	def_renderer.gbuff_data.device = device
+	def_renderer.gbuff_data.render_targets = make(map[string]RenderTarget)
+	def_renderer.renderer = create_renderer()
+	
+	renderers_map["deffered"] = &def_renderer
+
+	create_pass(&def_renderer.renderer,gbuffer_init,gbuffer_setup,gbuffer_exec)
+
+	for pass in def_renderer.renderer.passes.buffer{
+		pass.init(&def_renderer)
 	}
 }
 
-set_viewport_dx11 :: proc(origin : m.float2,size : m.float2,depth : m.float2 = {D3D11.MIN_DEPTH,D3D11.MAX_DEPTH}){
-	using D3D11
-	viewport : VIEWPORT
-	viewport.TopLeftY = origin.x
-	viewport.TopLeftX = origin.y
-	viewport.Width = size.x
-	viewport.Height = size.y
-	viewport.MinDepth = depth.x
-	viewport.MaxDepth = depth.y
-	base_device_context->RSSetViewports(1,&viewport)	
+finalize_frame_dx11 :: proc(){
+	swapchain->Present(1,0)
 }

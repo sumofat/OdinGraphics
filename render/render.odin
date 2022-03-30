@@ -8,26 +8,42 @@ import runtime "core:runtime"
 import la "core:math/linalg"
 import m "core:math/linalg/hlsl"
 import fmt "core:fmt"
-
+@(private="file")
 selected_renderer : Renderer
+@(private="file")
+back_buffer_render_target : RenderTarget
+@(private="file")
+device : Device
 
 RenderTick :: proc(){
-	base_device_context->OMSetRenderTargets(1,&render_target_view,nil)
+	render_targets : []RenderTarget = make([]RenderTarget,1)
+	render_targets[0] = back_buffer_render_target
+	set_render_targets(device,render_targets[:],1)
 	clear_color := [4]f32{0,0,1,1}
-	base_device_context->ClearRenderTargetView(render_target_view,&clear_color)
+	clear_render_target(device,render_targets[0],clear_color)
 
-	execute_renderer(selected_renderer)
-	swapchain->Present(1,0)
+	execute_renderer("deffered",DefferedRenderer)
+
+	end_frame()
 }
 
 render_init ::  proc(){
-	init_renderers()
-	
-	selected_renderer = deffered_renderer
+	init_renderers(device)
 
 	bb_size := get_backbuffer_size()
-	set_viewport(m.float2{0,0},m.float2{bb_size.x,bb_size.y})
+	set_viewport(device,m.float2{0,0},m.float2{bb_size.x,bb_size.y})
+}
 
+init_device_render_api :: proc(hwnd : windows.HWND){
+	new_device := create_device(hwnd)
+	if new_device.ptr != nil{
+		create_swapchain(new_device,hwnd)
+		device = new_device
+	}else{
+		assert(false)
+	}
+	
+	back_buffer_render_target = create_render_target_back_buffer(new_device)
 }
 
 init :: proc(hwnd : windows.HWND){
@@ -38,3 +54,8 @@ init :: proc(hwnd : windows.HWND){
 	render_init()
 }
 
+end_frame :: proc(){
+	when RENDERER == RENDER_TYPE.DX11{
+		finalize_frame_dx11()
+	}
+}
