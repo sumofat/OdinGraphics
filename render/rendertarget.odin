@@ -171,6 +171,26 @@ convert_format_dxgi ::  proc(format : Format)-> DXGI.FORMAT{
 	return result
 }
 
+create_texture2d_view ::  proc(device : Device,format : Format,dim : m.float2,flags : D3D11.BIND_FLAG)-> ^D3D11.ITexture2D{
+	using D3D11
+	result : ^ITexture2D
+	tex_desc : TEXTURE2D_DESC
+	tex_desc.Width = u32(dim.x)
+	tex_desc.Height = u32(dim.y)
+	tex_desc.Format = convert_format_dxgi(format)
+	
+	sample_desc : DXGI.SAMPLE_DESC
+	sample_desc.Count = 1
+	sample_desc.Quality = 0
+	tex_desc.SampleDesc = sample_desc
+	tex_desc.ArraySize = 1
+	tex_desc.BindFlags = flags
+
+	hresult := (^IDevice)(device.ptr)->CreateTexture2D(&tex_desc,nil,&result)
+	assert(hresult == 0)
+	return result
+}
+
 create_render_target_dx11 ::  proc(device : Device,format : Format,dim : m.float2)-> RenderTarget{
 	using D3D11
 	using fmt
@@ -178,25 +198,8 @@ create_render_target_dx11 ::  proc(device : Device,format : Format,dim : m.float
 	assert(device.ptr != nil)
 
 	result : RenderTarget
-	render_texture : ^ITexture2D
-	tex_desc : TEXTURE2D_DESC
-	tex_desc.Width = u32(dim.x)
-	tex_desc.Height = u32(dim.y)
-	dx11_converted_format := convert_format_dxgi(format)
-	tex_desc.Format = dx11_converted_format
-	sample_desc : DXGI.SAMPLE_DESC
-	sample_desc.Count = 1
-	sample_desc.Quality = 0
-	tex_desc.SampleDesc = sample_desc
-	tex_desc.ArraySize = 1
-	//tex_desc.CPUAccessFlags = CPU_ACCESS_FLAG.
-	tex_desc.BindFlags = BIND_FLAG.RENDER_TARGET | BIND_FLAG.SHADER_RESOURCE
 
-	tex_ptr : ^ITexture2D = (^ITexture2D)(result.ptr)
-	hresult := (^IDevice)(device.ptr)->CreateTexture2D(&tex_desc,nil,&tex_ptr)
-	assert(hresult == 0)
-	assert(tex_ptr != nil)
-	result.tex_ptr = tex_ptr
+	result.tex_ptr = create_texture2d_view(device,format,dim,BIND_FLAG.RENDER_TARGET | BIND_FLAG.SHADER_RESOURCE)
 
 	render_target_view : IRenderTargetView
 	render_target_desc : RENDER_TARGET_VIEW_DESC
@@ -206,7 +209,7 @@ create_render_target_dx11 ::  proc(device : Device,format : Format,dim : m.float
 	render_target_desc.Texture2D.MipSlice = 0
 
 	render_target_view_ptr : ^IRenderTargetView
-	hresult = (^IDevice)(device.ptr)->CreateRenderTargetView(tex_ptr,&render_target_desc,&render_target_view_ptr)
+	hresult := (^IDevice)(device.ptr)->CreateRenderTargetView((^ITexture2D)(result.tex_ptr),&render_target_desc,&render_target_view_ptr)
 	fmt.println(hresult)
 	assert(hresult == 0)
 	assert(render_target_view_ptr != nil)
@@ -214,6 +217,32 @@ create_render_target_dx11 ::  proc(device : Device,format : Format,dim : m.float
 	return result
 }
 
+create_depth_stencil_dx11 :: proc(device : Device,format : Format,dim : m.float2) -> DepthStencil{
+	using D3D11
+	result : DepthStencil 
+	depth_stencil_view_desc : DEPTH_STENCIL_VIEW_DESC 
+	depth_stencil_view_desc.Format = convert_format_dxgi(format)
+	depth_stencil_view_desc.Texture2D.MipSlice = 0
+	depth_stencil_view_desc.Flags = 0
+	depth_stencil_view_desc.ViewDimension = DSV_DIMENSION.TEXTURE2D
+	
+	depth_stencil_ptr : ^IDepthStencilView
+
+	texture_view := create_texture2d_view(device,format,dim,BIND_FLAG.DEPTH_STENCIL)
+
+	(^IDevice)(device.ptr)->CreateDepthStencilView((^ITexture2D)(texture_view),&depth_stencil_view_desc,&depth_stencil_ptr)
+	assert(depth_stencil_ptr != nil)
+	result.ptr = depth_stencil_ptr
+	return result 
+}
+
+create_depth_stencil :: proc(device : Device,format : Format,dim : m.float2) -> DepthStencil{
+	result : DepthStencil
+	when RENDERER == RENDER_TYPE.DX11{
+		result = create_depth_stencil_dx11(device,format,dim)
+	}
+	return result
+}
 create_render_target ::  proc(device : Device,format : Format,dim : m.float2)-> RenderTarget{
 	result : RenderTarget
 	when RENDERER == RENDER_TYPE.DX11{
@@ -256,4 +285,17 @@ clear_render_target_dx11 ::  proc(device : Device,render_target : RenderTarget,c
 clear_render_target ::  proc(device : Device,render_target : RenderTarget,clear_color : [4]f32){
 	color := clear_color
 	clear_render_target_dx11(device,render_target,color)
+}
+
+clear_depth_stencil_dx11 :: proc(device : Device,depth_stencil : DepthStencil,clear_flag : D3D11.CLEAR_FLAG,depth_clear_value : f32,stencil_clear_value : u8){
+	using D3D11
+	assert(device.ptr != nil)
+	assert(depth_stencil.ptr != nil)
+	(^IDeviceContext)(device.con.ptr)->ClearDepthStencilView((^IDepthStencilView)(depth_stencil.ptr),clear_flag,depth_clear_value,stencil_clear_value)
+}
+
+clear_depth_stencil :: proc(device : Device,depth_stencil : DepthStencil,clear_flag : D3D11.CLEAR_FLAG,depth_clear_value : f32,stencil_clear_value : u8){
+	when RENDERER == RENDER_TYPE.DX11{
+		clear_depth_stencil_dx11(device,depth_stencil,clear_flag,depth_clear_value,stencil_clear_value)
+	}
 }

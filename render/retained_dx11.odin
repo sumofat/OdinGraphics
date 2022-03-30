@@ -30,8 +30,6 @@ d2 : ^DXGI.IDevice2
 @(private="file")
 gbuffer_data : GBufferData
 @(private="file")
-render_commands : con.Buffer(RenderCommand)
-@(private="file")
 render_texture : con.Buffer(int)
 
 //map of all the active rednerers
@@ -87,6 +85,7 @@ RenderGeometry :: struct {
 BaseRenderCommandList :: struct{
 	list : con.Buffer(RenderCommand),
 }
+
 RenderTarget :: struct{
 	ptr : rawptr,
 	tex_ptr : rawptr,
@@ -95,6 +94,11 @@ RenderTarget :: struct{
 RenderShader :: struct{
 
 }
+
+DepthStencil :: struct{
+	ptr : rawptr,
+}
+
 PrimitiveTopology :: enum{
     topology_undefined	= 0,
     topology_pointlist	= 1,
@@ -131,7 +135,10 @@ GBufferData :: struct{
 	//TODO(Ray):Want to keep the concept so we have good correlation with dx12/VULKAN
 	//root_sig:           rawptr,
 	render_targets:     map[string]RenderTarget,
+	depth_stencils : map[string]DepthStencil,
 	shader:             RenderShader,
+	//camera : ^RenderCamera,
+	render_commands : con.Buffer(RenderCommand),
 }
 
 Pass :: struct{
@@ -184,9 +191,12 @@ gbuffer_init_dx11 ::  proc(data : rawptr){
 	diffuse_rt := create_render_target(def_ren_data.gbuff_data.device,Format.B8G8R8A8_UNORM,bb_dim)
 	normal_rt := create_render_target(def_ren_data.gbuff_data.device,Format.B8G8R8A8_UNORM,bb_dim)
 	position_rt := create_render_target(def_ren_data.gbuff_data.device,Format.B8G8R8A8_UNORM,bb_dim)
+	depth_stencil := create_depth_stencil(def_ren_data.gbuff_data.device,Format.D24_UNORM_S8_UINT,bb_dim)
+	
 	def_ren_data.gbuff_data.render_targets["diffuse"] = diffuse_rt
 	def_ren_data.gbuff_data.render_targets["normal"] = normal_rt
 	def_ren_data.gbuff_data.render_targets["position"] = position_rt
+	def_ren_data.gbuff_data.depth_stencils["default"] = depth_stencil
 }
 
 gbuffer_setup_dx11 :: proc(data : rawptr){
@@ -196,17 +206,23 @@ gbuffer_setup_dx11 :: proc(data : rawptr){
 	diffuse_rt : RenderTarget = def_data.gbuff_data.render_targets["diffuse"]
 	normal_rt : RenderTarget = def_data.gbuff_data.render_targets["normal"]
 	position_rt : RenderTarget = def_data.gbuff_data.render_targets["position"]
+	default_depth_stencil : DepthStencil = def_data.gbuff_data.depth_stencils["default"]
 	assert(diffuse_rt.ptr != nil)
 	assert(normal_rt.ptr != nil)
 	assert(position_rt.ptr != nil)
-fmt.println(diffuse_rt)
+
 	clear_render_target(def_data.gbuff_data.device,diffuse_rt,clear_color)
 	clear_render_target(def_data.gbuff_data.device,normal_rt,clear_color)
 	clear_render_target(def_data.gbuff_data.device,position_rt,clear_color)
+	clear_depth_stencil(def_data.gbuff_data.device,default_depth_stencil,D3D11.CLEAR_FLAG.DEPTH | D3D11.CLEAR_FLAG.STENCIL,0,0)
 }
 
 gbuffer_execute_dx11 ::  proc(data : rawptr){
-	/*execute commands*/
+	def_data : ^DefferedRenderer = (^DefferedRenderer)(data)
+	for command in def_data.gbuff_data.render_commands.buffer{
+		
+
+	}
 }
 
 gbuffer_init ::  proc(data : rawptr){
@@ -322,6 +338,7 @@ init_renderers ::  proc(device : Device){
 	renderers_map = make(map[string]rawptr)
 	def_renderer.gbuff_data.device = device
 	def_renderer.gbuff_data.render_targets = make(map[string]RenderTarget)
+	def_renderer.gbuff_data.depth_stencils = make(map[string]DepthStencil)
 	def_renderer.renderer = create_renderer()
 	
 	renderers_map["deffered"] = &def_renderer
