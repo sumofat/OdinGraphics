@@ -10,6 +10,10 @@ import la "core:math/linalg"
 import m "core:math/linalg/hlsl"
 import fmt "core:fmt"
 import con "../containers"
+import camera "camera"
+import assets "assets"
+
+RECT :: windows.RECT
 /*
 Create a retained mode renderer 
 1. Take in state calls
@@ -31,9 +35,19 @@ d2 : ^DXGI.IDevice2
 gbuffer_data : GBufferData
 @(private="file")
 render_texture : con.Buffer(int)
+@(private="file")
+temp_working_vertex_buffers : con.Buffer(VertexBuffer)
 
 //map of all the active rednerers
 renderers_map : map[string]rawptr
+
+//global cpu buffer for all matrices 
+matrix_cpu_buffer : con.Buffer(m.float4x4)
+//gpu buffer for all matrices passed to the gpu
+matrix_gpu_buffer : con.Buffer(m.float4x4)
+
+MAX_STRUCT_BUFFER_SIZE :: 512
+const_buf_matrix_gpu : ConstantBuffer(m.float4x4)
 
 get_renderer ::  proc(name : string,$T : typeid)-> ^T{
 	render_ptr : ^rawptr = &renderers_map[name]
@@ -60,13 +74,14 @@ Device :: struct{
 	con : DeviceContext,
 }
 
+
 //Commands for Renderer
 RenderCommand :: struct{
 	geometry : RenderGeometry,
-	material_id : int,
+	material_id : u64,
 	model_matrix_id : int,
-	camera_matrix_id:      int,
-	perspective_matrix_id: int,
+	camera_matrix_id:      u64,
+	perspective_matrix_id: u64,
 	texture_range : m.int2, 
 	is_indexed:bool,
 	material_name:string,
@@ -137,7 +152,7 @@ GBufferData :: struct{
 	render_targets:     map[string]RenderTarget,
 	depth_stencils : map[string]DepthStencil,
 	shader:             RenderShader,
-	//camera : ^RenderCamera,
+	camera : ^camera.Camera,
 	render_commands : con.Buffer(RenderCommand),
 }
 
@@ -217,12 +232,91 @@ gbuffer_setup_dx11 :: proc(data : rawptr){
 	clear_depth_stencil(def_data.gbuff_data.device,default_depth_stencil,D3D11.CLEAR_FLAG.DEPTH | D3D11.CLEAR_FLAG.STENCIL,0,0)
 }
 
+init_temp_mem :: proc(){
+	temp_working_vertex_buffers = con.buf_init(1,VertexBuffer)
+}
+
 gbuffer_execute_dx11 ::  proc(data : rawptr){
+	using m
+	using con
 	def_data : ^DefferedRenderer = (^DefferedRenderer)(data)
 	for command in def_data.gbuff_data.render_commands.buffer{
-		
+		world_matrix := buf_get(&matrix_cpu_buffer,u64(command.model_matrix_id))
+		camera := def_data.gbuff_data.camera
+		camera_matrix := camera.mat
+		projection_matrix := camera.projection_matrix
+		view_matrix : float4x4 = camera_matrix * world_matrix
+		clip_matrix : float4x4 = projection_matrix * view_matrix
 
+		base_color := command.geometry.base_color
+		
+		//push to gpu buffer
+		view_matrix_id := buf_len(matrix_gpu_buffer) * size_of(m.float4x4)
+		buf_push(&matrix_gpu_buffer,view_matrix)
+
+		clip_matrix_id := buf_len(matrix_gpu_buffer) * size_of(m.float4x4)
+		buf_push(&matrix_gpu_buffer,clip_matrix)
+		//set rendertargets
+		device := def_data.gbuff_data.device
+		
+		render_targets_to_set : []RenderTarget = make([]RenderTarget,3)
+		render_targets_map := def_data.gbuff_data.render_targets
+		render_targets_to_set[0] = render_targets_map["diffuse"]
+		render_targets_to_set[1] = render_targets_map["normal"]
+		render_targets_to_set[2] = render_targets_map["position"]
+		
+		set_render_targets(device,render_targets_to_set,3)
+		//set viewport 
+		bb_size := get_backbuffer_size()
+		set_viewport(device,float2{0,0},bb_size)
+		//set scissor rect
+		s_rect : RECT = {0,0,i32(bb_size.x),i32(bb_size.y)}
+		slice_rect : []RECT = {s_rect}
+		set_scissor_rects(device,1,slice_rect)
+		//get the material
+		assets.get_material_by_id(command.material_id)
+		//set pipeline state not needed for dx11 
+		set_primitive_topology_dx11(device,D3D11.PRIMITIVE_TOPOLOGY.TRIANGLELIST)
+		//context->IASetInputLayout(m_pInputLayout.Get());
+		//sets constants
+		constant_matrix_buffer_slice := []ConstantBuffer(float4x4){const_buf_matrix_gpu}
+		set_constant_buffers(device,0,float4x4,constant_matrix_buffer_slice)
+		
+		strides : con.Buffer(u32) = buf_init(1,u32)
+		offsets : con.Buffer(u32) = buf_init(1,u32)
+		defer{
+			buf_free(&offsets)
+			buf_free(&strides)
+		}
+		for i : int = command.geometry.buffer_id_range.x;i < command.geometry.buffer_id_range.y;i += 1{
+			bv := buf_get(&buffer_table.vertex_buffers,u64(i))
+			buf_push(&temp_working_vertex_buffers,bv)
+			buf_push(&strides,bv.stride_in_bytes)
+			buf_push(&offsets,0)
+		}
+		defer{buf_clear(&temp_working_vertex_buffers)}
+		set_vertex_buffers(device,0,1,temp_working_vertex_buffers.buffer[:],strides.buffer[:],offsets.buffer[:])
+
+		if command.is_indexed{
+			ibv := buf_get(&buffer_table.index_buffers,u64(command.geometry.index_id))
+			offset : u32 = 0
+
+			set_index_buffer(device,ibv,ibv.format,offset)
+			//draw_indexed()
+		}else{
+			//draw()
+		}
+
+		//set buffers for stages
+		//than execute draw commands
+		//end command list
 	}
+}
+
+
+set_primitive_topology_dx11 :: proc(dev : Device,topology : D3D11.PRIMITIVE_TOPOLOGY){
+	using D3D11
+	(^IDeviceContext)(dev.con.ptr)->IASetPrimitiveTopology(topology)
 }
 
 gbuffer_init ::  proc(data : rawptr){
@@ -242,6 +336,7 @@ gbuffer_setup ::  proc(data : rawptr){
 gbuffer_exec ::  proc(data : rawptr){
 	when RENDERER == RENDER_TYPE.DX11{
 		gbuffer_execute_dx11(data)
+
 	}
 }
 
@@ -319,6 +414,17 @@ set_viewport :: proc(device : Device,origin : m.float2,size : m.float2,depth : m
 	}
 }
 
+
+set_scissor_rects_dx11 :: proc(device : Device,count : u32,rects : []RECT){
+	using D3D11
+	(^IDeviceContext)(device.con.ptr)->RSSetScissorRects(count,&rects[0])
+}
+set_scissor_rects :: proc(device : Device,count : u32,rects : []RECT){
+	when RENDERER == RENDER_TYPE.DX11{
+		set_scissor_rects_dx11(device,count,rects)
+	}
+}
+
 get_backbuffer_size :: proc() -> m.float2{
 	using D3D11
 	result : m.float2
@@ -332,10 +438,14 @@ get_backbuffer_size :: proc() -> m.float2{
 	}
 	return result
 }
-
 init_renderers ::  proc(device : Device){
 	using con
+	matrix_cpu_buffer = buf_init(1,m.float4x4)
+	matrix_gpu_buffer = buf_init(1,m.float4x4)
 	renderers_map = make(map[string]rawptr)
+
+	const_buf_matrix_gpu = init_constant_buffer_structured(device,m.float4x4,&matrix_gpu_buffer.buffer[0],MAX_STRUCT_BUFFER_SIZE * size_of(m.float4x4))
+	init_temp_mem()
 	def_renderer.gbuff_data.device = device
 	def_renderer.gbuff_data.render_targets = make(map[string]RenderTarget)
 	def_renderer.gbuff_data.depth_stencils = make(map[string]DepthStencil)
