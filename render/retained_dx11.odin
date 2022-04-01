@@ -282,6 +282,7 @@ gbuffer_execute_dx11 ::  proc(data : rawptr){
 		constant_matrix_buffer_slice := []ConstantBuffer(float4x4){const_buf_matrix_gpu}
 		set_constant_buffers(device,0,float4x4,constant_matrix_buffer_slice)
 		
+		//set buffers for stages
 		strides : con.Buffer(u32) = buf_init(1,u32)
 		offsets : con.Buffer(u32) = buf_init(1,u32)
 		defer{
@@ -297,22 +298,43 @@ gbuffer_execute_dx11 ::  proc(data : rawptr){
 		defer{buf_clear(&temp_working_vertex_buffers)}
 		set_vertex_buffers(device,0,1,temp_working_vertex_buffers.buffer[:],strides.buffer[:],offsets.buffer[:])
 
+		//than execute draw commands
 		if command.is_indexed{
 			ibv := buf_get(&buffer_table.index_buffers,u64(command.geometry.index_id))
 			offset : u32 = 0
 
 			set_index_buffer(device,ibv,ibv.format,offset)
-			//draw_indexed()
+			index_count : u32 = u32(command.geometry.index_count)
+			start_index_location : u32 = u32(command.geometry.offset)
+			base_vertex_location : i32 = 0
+			draw_indexed(device,index_count,start_index_location,base_vertex_location)
 		}else{
-			//draw()
+			draw(device,u32(command.geometry.count), u32(command.geometry.offset))
 		}
 
-		//set buffers for stages
-		//than execute draw commands
 		//end command list
 	}
 }
 
+draw_dx11 :: proc(dev : Device,start_index : u32,start_index_location : u32){
+	using D3D11
+	(^IDeviceContext)(dev.con.ptr)->Draw(start_index,start_index_location)
+}
+draw ::  proc(dev : Device,start_index : u32,start_index_location : u32){
+	when RENDERER == RENDER_TYPE.DX11{
+		draw_dx11(dev,start_index,start_index_location)
+	}
+}
+
+draw_indexed_dx11 ::  proc(dev : Device,index_count : u32,start_index_location : u32,base_vertex_location : i32){
+	using D3D11
+	(^IDeviceContext)(dev.con.ptr)->DrawIndexed(index_count,start_index_location,base_vertex_location)
+}
+draw_indexed ::  proc(dev : Device,index_count : u32,start_index_location : u32,base_vertex_location : i32){
+	when RENDERER == RENDER_TYPE.DX11{
+		draw_indexed_dx11(dev,index_count,start_index_location,base_vertex_location)
+	}
+}
 
 set_primitive_topology_dx11 :: proc(dev : Device,topology : D3D11.PRIMITIVE_TOPOLOGY){
 	using D3D11
@@ -440,11 +462,13 @@ get_backbuffer_size :: proc() -> m.float2{
 }
 init_renderers ::  proc(device : Device){
 	using con
-	matrix_cpu_buffer = buf_init(1,m.float4x4)
-	matrix_gpu_buffer = buf_init(1,m.float4x4)
+	matrix_cpu_buffer = buf_init(MAX_STRUCT_BUFFER_SIZE,m.float4x4)
+	matrix_gpu_buffer = buf_init(MAX_STRUCT_BUFFER_SIZE,m.float4x4)
 	renderers_map = make(map[string]rawptr)
+	buf_push(&matrix_gpu_buffer,m.float4x4{})
+	first_ele_ptr := &matrix_gpu_buffer.buffer[0]
 
-	const_buf_matrix_gpu = init_constant_buffer_structured(device,m.float4x4,&matrix_gpu_buffer.buffer[0],MAX_STRUCT_BUFFER_SIZE * size_of(m.float4x4))
+	const_buf_matrix_gpu = init_constant_buffer_structured(device,m.float4x4,first_ele_ptr,MAX_STRUCT_BUFFER_SIZE * size_of(m.float4x4))
 	init_temp_mem()
 	def_renderer.gbuff_data.device = device
 	def_renderer.gbuff_data.render_targets = make(map[string]RenderTarget)

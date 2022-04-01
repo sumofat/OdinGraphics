@@ -77,7 +77,7 @@ init_constant_buffer_structured_dx11 ::  proc(device : Device,$T : typeid,const_
 	cb_desc :  BUFFER_DESC
 	cb_desc.ByteWidth = byte_size
 	cb_desc.Usage = USAGE.DYNAMIC
-	cb_desc.BindFlags = BIND_FLAG.CONSTANT_BUFFER
+	cb_desc.BindFlags = BIND_FLAG.SHADER_RESOURCE//BIND_FLAG.CONSTANT_BUFFER
 	cb_desc.CPUAccessFlags = CPU_ACCESS_FLAG.WRITE
 	cb_desc.MiscFlags = RESOURCE_MISC_FLAG.BUFFER_STRUCTURED
 	cb_desc.StructureByteStride = size_of(T)
