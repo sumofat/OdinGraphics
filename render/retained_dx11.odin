@@ -11,7 +11,6 @@ import m "core:math/linalg/hlsl"
 import fmt "core:fmt"
 import con "../containers"
 import camera "camera"
-import assets "assets"
 
 RECT :: windows.RECT
 /*
@@ -42,11 +41,15 @@ temp_working_vertex_buffers : con.Buffer(VertexBuffer)
 renderers_map : map[string]rawptr
 
 //global cpu buffer for all matrices 
-matrix_cpu_buffer : con.Buffer(m.float4x4)
+//@(private)
+//matrix_cpu_buffer : con.Buffer(m.float4x4)
 //gpu buffer for all matrices passed to the gpu
-matrix_gpu_buffer : con.Buffer(m.float4x4)
+//@(private)
+//matrix_gpu_buffer : con.Buffer(m.float4x4)
 
 MAX_STRUCT_BUFFER_SIZE :: 512
+
+@(private)
 const_buf_matrix_gpu : ConstantBuffer(m.float4x4)
 
 get_renderer ::  proc(name : string,$T : typeid)-> ^T{
@@ -241,7 +244,8 @@ gbuffer_execute_dx11 ::  proc(data : rawptr){
 	using con
 	def_data : ^DefferedRenderer = (^DefferedRenderer)(data)
 	for command in def_data.gbuff_data.render_commands.buffer{
-		world_matrix := buf_get(&matrix_cpu_buffer,u64(command.model_matrix_id))
+		//world_matrix := buf_get(&matrix_cpu_buffer,u64(command.model_matrix_id))
+		world_matrix := cpu_matrix_buffer->get_matrix(u64(command.model_matrix_id))
 		camera := def_data.gbuff_data.camera
 		camera_matrix := camera.mat
 		projection_matrix := camera.projection_matrix
@@ -251,11 +255,16 @@ gbuffer_execute_dx11 ::  proc(data : rawptr){
 		base_color := command.geometry.base_color
 		
 		//push to gpu buffer
-		view_matrix_id := buf_len(matrix_gpu_buffer) * size_of(m.float4x4)
-		buf_push(&matrix_gpu_buffer,view_matrix)
+		view_matrix_id := gpu_matrix_buffer->get_current_matrix_id()
+		//view_matrix_id := buf_len(matrix_gpu_buffer) * size_of(m.float4x4)
+		//buf_push(&matrix_gpu_buffer,view_matrix)
+		gpu_matrix_buffer->add_matrix(view_matrix)
 
-		clip_matrix_id := buf_len(matrix_gpu_buffer) * size_of(m.float4x4)
-		buf_push(&matrix_gpu_buffer,clip_matrix)
+		//clip_matrix_id := buf_len(matrix_gpu_buffer) * size_of(m.float4x4)
+		clip_matrix_id := gpu_matrix_buffer->get_current_matrix_id()
+
+	//	buf_push(&matrix_gpu_buffer,clip_matrix)
+		gpu_matrix_buffer->add_matrix(clip_matrix)
 		//set rendertargets
 		device := def_data.gbuff_data.device
 		
@@ -274,7 +283,7 @@ gbuffer_execute_dx11 ::  proc(data : rawptr){
 		slice_rect : []RECT = {s_rect}
 		set_scissor_rects(device,1,slice_rect)
 		//get the material
-		assets.get_material_by_id(command.material_id)
+		get_material_by_id(command.material_id)
 		//set pipeline state not needed for dx11 
 		set_primitive_topology_dx11(device,D3D11.PRIMITIVE_TOPOLOGY.TRIANGLELIST)
 		//context->IASetInputLayout(m_pInputLayout.Get());
@@ -460,13 +469,19 @@ get_backbuffer_size :: proc() -> m.float2{
 	}
 	return result
 }
+
 init_renderers ::  proc(device : Device){
 	using con
-	matrix_cpu_buffer = buf_init(MAX_STRUCT_BUFFER_SIZE,m.float4x4)
-	matrix_gpu_buffer = buf_init(MAX_STRUCT_BUFFER_SIZE,m.float4x4)
+	gpu_matrix_buffer = init_matrix_buffer(MAX_STRUCT_BUFFER_SIZE)
+	cpu_matrix_buffer = init_matrix_buffer(MAX_STRUCT_BUFFER_SIZE)
+
+	//matrix_cpu_buffer = buf_init(MAX_STRUCT_BUFFER_SIZE,m.float4x4)
+	//matrix_gpu_buffer = buf_init(MAX_STRUCT_BUFFER_SIZE,m.float4x4)
 	renderers_map = make(map[string]rawptr)
-	buf_push(&matrix_gpu_buffer,m.float4x4{})
-	first_ele_ptr := &matrix_gpu_buffer.buffer[0]
+	//buf_push(&matrix_gpu_buffer,m.float4x4{})
+	gpu_matrix_buffer->add_matrix(m.float4x4{})
+	first_ele_ptr := gpu_matrix_buffer->get_pointer_at_offset()
+	//first_ele_ptr := &matrix_gpu_buffer.buffer[0]
 
 	const_buf_matrix_gpu = init_constant_buffer_structured(device,m.float4x4,first_ele_ptr,MAX_STRUCT_BUFFER_SIZE * size_of(m.float4x4))
 	init_temp_mem()
