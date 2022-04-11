@@ -10,7 +10,10 @@ import runtime "core:runtime"
 import la "core:math/linalg"
 import m "core:math/linalg/hlsl"
 import render "render"
+/*
+Remove the windows specific part of the windows
 
+*/
 Time :: struct{}
 Input :: struct{}
 Window :: struct{

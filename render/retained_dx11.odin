@@ -68,15 +68,6 @@ RENDER_TYPE :: enum{
 }
 
 RENDERER : RENDER_TYPE  : RENDER_TYPE.DX11 
-DeviceContext :: struct{
-	ptr : rawptr,
-}
-
-Device :: struct{
-	ptr : rawptr,
-	con : DeviceContext,
-}
-
 
 //Commands for Renderer
 RenderCommand :: struct{
@@ -369,24 +360,6 @@ gbuffer_exec ::  proc(data : rawptr){
 		gbuffer_execute_dx11(data)
 
 	}
-}
-
-create_device ::  proc(hwnd : windows.HWND)-> Device{
-	using D3D11
-	result : Device
-	when RENDERER == RENDER_TYPE.DX11{
-		creation_flags : CREATE_DEVICE_FLAGS
-		creation_flags = {CREATE_DEVICE_FLAG.DEBUG}//D3D11_CREATE_DEVICE_BGRA_SUPPORT
-		new_device_ptr : ^IDevice
-		new_device_context : ^IDeviceContext
-		hresult := CreateDevice(nil,DRIVER_TYPE.HARDWARE,nil,creation_flags,nil,0,SDK_VERSION,&new_device_ptr,nil,&new_device_context)
-		if hresult != 0x0{
-			assert(false)
-		}
-		result.ptr = new_device_ptr
-		result.con.ptr = new_device_context
-	}
-	return result
 }
 
 create_swapchain ::  proc(device : Device,hwnd : windows.HWND){

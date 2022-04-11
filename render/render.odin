@@ -12,15 +12,13 @@ import fmt "core:fmt"
 selected_renderer : Renderer
 @(private="file")
 back_buffer_render_target : RenderTarget
-@(private="file")
-device : Device
 
 RenderTick :: proc(){
 	render_targets : []RenderTarget = make([]RenderTarget,1)
 	render_targets[0] = back_buffer_render_target
-	set_render_targets(device,render_targets[:],1)
+	set_render_targets(render_device,render_targets[:],1)
 	clear_color := [4]f32{0,0,1,1}
-	clear_render_target(device,render_targets[0],clear_color)
+	clear_render_target(render_device,render_targets[0],clear_color)
 
 	execute_renderer("deffered",DefferedRenderer)
 
@@ -28,22 +26,21 @@ RenderTick :: proc(){
 }
 
 render_init ::  proc(){
-	init_renderers(device)
+	init_renderers(render_device)
 
 	bb_size := get_backbuffer_size()
-	set_viewport(device,m.float2{0,0},m.float2{bb_size.x,bb_size.y})
+	set_viewport(render_device,m.float2{0,0},m.float2{bb_size.x,bb_size.y})
 }
 
 init_device_render_api :: proc(hwnd : windows.HWND){
-	new_device := create_device(hwnd)
-	if new_device.ptr != nil{
-		create_swapchain(new_device,hwnd)
-		device = new_device
+	create_device(hwnd)
+	if render_device.ptr != nil{
+		create_swapchain(render_device,hwnd)
 	}else{
 		assert(false)
 	}
 	
-	back_buffer_render_target = create_render_target_back_buffer(new_device)
+	back_buffer_render_target = create_render_target_back_buffer(render_device)
 }
 
 init :: proc(hwnd : windows.HWND){
