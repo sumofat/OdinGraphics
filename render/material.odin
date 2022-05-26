@@ -11,12 +11,26 @@ import m "core:math/linalg/hlsl"
 import fmt "core:fmt"
 import con "../containers"
 
+MaterialPropertyValue :: union{
+
+	int,
+	f32,
+	m.float3,
+	m.float4,
+	Texture,
+}
+
+MaterialProperty :: struct{
+	name : string,
+	value : MaterialPropertyValue,
+}
+
 Material :: struct{
 	id : u64,
 	name : string,
 	pipeline_state : rawptr,
-	base_textue_id : u64,
-	base_color : m.float4,
+	base_color : MaterialProperty,//m.float4,
+	properties : con.Buffer(MaterialProperty),
 }
 
 

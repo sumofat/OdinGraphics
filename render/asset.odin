@@ -70,7 +70,7 @@ Mesh :: struct
     material_name : string,    
 	//TODO(Ray):TExture ID"s should be stored in materials and use maps to keep references to the names
 //	heap_id : u64,//For api's that support it we will store textures in one large heap
-//    metallic_roughness_texture_id : u64,
+	metallic_roughness_texture_id : Texture,
 
     base_color : m.float4,
 }
@@ -105,6 +105,7 @@ AssetTable :: struct{
 AssetContext :: struct{
 	scene_objects : con.Buffer(SceneObject),
 }
+
 ModelLoadResult :: struct{
     is_success : bool,
     scene_object_id : u64,//instance id of the model created as a scene object  node 
@@ -214,7 +215,6 @@ create_mesh_from_cgltf_mesh  :: proc(ma : ^cgltf.mesh,material : Material,path :
     using con
     assert(ma != nil)
     mesh_id := buf_len(asset_table.meshes)
-    
     result := m.float2{cast(f32)mesh_id,cast(f32)mesh_id}
 
     for j := 0;cast(uint)j < ma.primitives_count; j += 1{
@@ -267,7 +267,7 @@ create_mesh_from_cgltf_mesh  :: proc(ma : ^cgltf.mesh,material : Material,path :
                             fmt.println(path_and_texture_name)
 
                             if t,ok := get_texture_from_mem(path_and_texture_name,tex_data,cast(i32)data_size,4);ok{
-                                mesh.metallic_roughness_texture_id = t.heap_id
+                               mesh.metallic_roughness_texture_id = t//.heap_id
                             }else{
                                 assert(false)
                             }
@@ -393,7 +393,6 @@ create_mesh_from_cgltf_mesh  :: proc(ma : ^cgltf.mesh,material : Material,path :
                     }
                     else if ac.type == cgltf.attribute_type.texcoord && !has_got_first_uv_set
                     {
-
                         mesh.uv_data = outf
                         mesh.uv_data_size = cast(u64)num_bytes
                         mesh.uv_count = cast(u64)count
@@ -514,7 +513,6 @@ upload_meshes :: proc(device : Device,range : m.float2){
         buf_chk_in(&asset_table.meshes)        
     }
 }
-
 
 load_meshes_recursively_gltf_node :: proc(device : Device,result : ^ModelLoadResult,node : cgltf.node,ctx : ^AssetContext,file_path : cstring, material : Material,so_id : u64,type : SceneObjectType){
 	using m

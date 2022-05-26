@@ -46,8 +46,10 @@ main :: proc(){
 	for{
 		handle_msgs(&window_data)
 		using render
+		render.load_scene("lantern.glb")
 		render.RenderTick()
 	}
+
 }
 
 Wnd_Proc :: proc "std" (hwnd : window32.Hwnd, uMsg : u32, wParam : window32.Wparam, lParam : window32.Lparam) -> window32.Lresult{

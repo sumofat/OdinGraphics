@@ -358,7 +358,6 @@ gbuffer_setup ::  proc(data : rawptr){
 gbuffer_exec ::  proc(data : rawptr){
 	when RENDERER == RENDER_TYPE.DX11{
 		gbuffer_execute_dx11(data)
-
 	}
 }
 

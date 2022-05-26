@@ -213,7 +213,7 @@ update_children :: proc( ctx : ^AssetContext,parent_so : ^SceneObject,position_s
         
         
         update_children(ctx,child_so, &current_p_sum, &current_r_product);
-        buf_chk_in(&parent_so.children.buffer);
+        buf_chk_in(&parent_so.children);
         buf_chk_in(&ctx.scene_objects);
     }
 }

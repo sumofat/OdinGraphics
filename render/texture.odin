@@ -71,6 +71,7 @@ texture_from_file :: proc(file : cstring,size : i32,desired_channels : i32) -> C
     assert(tex.texels != nil)
     return tex
 }
+
 texture_from_mem :: proc(ptr : ^u8,size : i32,desired_channels : i32) -> CPULoadedTextureResult{
     tex : CPULoadedTextureResult
 	tex.size = u32(tex.dim.x * tex.dim.y * 4)
