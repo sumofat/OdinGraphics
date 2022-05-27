@@ -43,10 +43,12 @@ main :: proc(){
 	fmt.println(result_string)
 	fmt.println(window_data)
 	render.init(windows.HWND(window_data.hwnd))
+
+	render.load_scene("lantern.glb")
+
 	for{
 		handle_msgs(&window_data)
 		using render
-		render.load_scene("lantern.glb")
 		render.RenderTick()
 	}
 

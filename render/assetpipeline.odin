@@ -15,7 +15,7 @@ import cgltf "../libs/odin_cgltf"
 import mem "core:mem"
 import strings "core:strings"
 import stbi "vendor:stb/image"
-
+import hash "core:hash"
 
 Alpha_Mode :: enum{
 	opaque,
@@ -63,9 +63,10 @@ AP_Imported_Mesh_Property_Type :: union{
 }
 
 AP_Imported_Material_Property_Type :: union{
+	bool,
 	m.float,
 	m.float4,
-	bool,
+	string,
 	Alpha_Mode,
 	//texture etc..
 }
@@ -165,6 +166,7 @@ SceneNode :: struct{
 
 asset_pipeline : Asset_Pipeline
 scene_nodes : con.Buffer(SceneNode)
+ap_texture_cache : con.AnyCache(u64,AP_Imported_Texture)
 
 init_asset_pipeline :: proc(){
 	using con
@@ -172,17 +174,19 @@ init_asset_pipeline :: proc(){
 	scene_nodes = buf_init(1,SceneNode)
 	asset_pipeline.textures = buf_init(1,AP_Imported_Texture)
 	asset_pipeline.materials = buf_init(1,AP_Imported_Material)
+	ap_texture_cache = anycache_init(u64,AP_Imported_Texture,false)
 }
 
 load_node :: proc(gltf_node : ^cgltf.node,list : ^con.Buffer(SceneNode)){
 	using con
 	assert(list != nil)
 	node := SceneNode{}
-	node.name = "root"
+	node.name = string(gltf_node.name)
 	node.component = buf_init(1,SceneComponent)
 	node.children = buf_init(1,SceneNode)
 	node.transform = transform_init()			
 
+	fmt.println("Loading node with name : ",node.name)
 	children := gltf_node.children[:gltf_node.children_count]
 	for child in children{
 		load_node(child,&node.children)
@@ -198,15 +202,10 @@ load_node :: proc(gltf_node : ^cgltf.node,list : ^con.Buffer(SceneNode)){
 	buf_push(list,node)
 }
 
-load_scene :: proc(path : string) -> (AP_Imported_Mesh,bool){
+load_scene :: proc(path : string) -> (bool){
 	using con
 	using asset_pipeline
 	using fmt
-
-	new_mesh := AP_Imported_Mesh{}
-	new_mesh.id = 0
-	new_mesh.name = "test"
-	new_mesh.properties = make(map[string]AP_Imported_Mesh_Property)
 
 	//get file extension
 	//load mesh based on extension
@@ -225,8 +224,9 @@ load_scene :: proc(path : string) -> (AP_Imported_Mesh,bool){
             assert(rs == cgltf.result.success)
         }
 
-		if cgltf_data.nodes_count == 0{return AP_Imported_Mesh{},false}
-		println(cgltf_data.asset.version)
+		if cgltf_data.nodes_count == 0{return false}
+		println("Loading Asset: ",path)
+		println("CGLTF Asset VERSION : ",cgltf_data.asset.version)
 
 		assert(cgltf_data.scenes_count == 1)
 		scenes := cgltf_data.scenes[:cgltf_data.scenes_count]
@@ -243,33 +243,73 @@ load_scene :: proc(path : string) -> (AP_Imported_Mesh,bool){
 				load_node(node,&root_node.children)
 			}
 		}
-
 		load_all_materials(cgltf_data)
-
 		load_all_textures(cgltf_data)
 	}
-	buf_push(&meshes,new_mesh)
-	return new_mesh,true 
+	return true
+}
+
+get_texture :: proc(uri : string,ptr : ^u8,size : int) -> (AP_Imported_Texture,bool){
+    result : AP_Imported_Texture
+    using con
+
+    lookup_key := u64(hash.murmur64(transmute([]u8)uri))
+    if anycache_exist(&ap_texture_cache,lookup_key){
+        t := anycache_get(&ap_texture_cache,lookup_key)
+            return t,true
+    }else{
+		desired_channels : i32 = 4
+        tex_loaded_result :=  texture_from_mem(ptr,i32(size),4)   
+		if tex_loaded_result.texels == nil{
+			return result,false
+		}
+
+        anycache_add(&ap_texture_cache,lookup_key,result)
+        
+		return result,true
+    }
+}
+
+get_texture_id :: proc(texture : ^cgltf.texture)->string{
+	assert(texture != nil)
+	offset := cast(u64)texture.image.buffer_view.offset
+	to_image_path : string
+	if texture.image.uri != ""{
+		to_image_path = string(texture.image.uri)
+	}else{
+		to_image_path = fmt.tprintf("%d",offset + 1)
+	}
+
+	//fmt.printf("Image URI: %s",image_uri)
+	//we will use the path to the mesh + the name of the texture to get lookup key using path.
+	//this is ok but stil requires the namem to bbe unique inside the gltf file
+	slice_path_name := []string{to_image_path}
+	path_and_texture_name := strings.concatenate(slice_path_name,context.temp_allocator)
+	return path_and_texture_name
 }
 
 load_all_textures :: proc(cgltf_data : ^cgltf.data){
 	textures := cgltf_data.textures[:cgltf_data.textures_count]
-	for texture in textures{
+	for texture in &textures{
 		new_texture : AP_Imported_Texture
 		new_texture.name = string(texture.name)
 
+		if texture.image == nil{continue}
 		offset := cast(u64)texture.image.buffer_view.offset
 		tex_data := mem.ptr_offset(cast(^u8)texture.image.buffer_view.buffer.data,cast(int)offset)
 		fmt.println(offset)
 		assert(tex_data != nil)
 		data_size := cast(u64)texture.image.buffer_view.size
 
-        tex_loaded_result :=  texture_from_mem(tex_data,i32(data_size),4)   
-		new_texture.dim = tex_loaded_result.dim
-		new_texture.byte_size = int(tex_loaded_result.size)
-		new_texture.texels = tex_loaded_result.texels
-
-		con.buf_push(&asset_pipeline.textures,new_texture)
+		//TODO(Ray):Revisit this texture stuff seems like a bit of nonsense.
+		if t,ok := get_texture(get_texture_id(&texture),tex_data,int(data_size));ok{
+			new_texture.dim = t.dim
+			new_texture.byte_size = int(t.byte_size)
+			new_texture.texels = t.texels
+			con.buf_push(&asset_pipeline.textures,new_texture)
+		}else{
+			assert(false)
+		}
 	}
 }
 
@@ -278,6 +318,7 @@ load_all_materials :: proc(cgltf_data : ^cgltf.data){
 	for material in materials{
 		using material
 
+		fmt.println("Loading material : ", material.name)
 		new_material : AP_Imported_Material
 		new_material.properties = make(map[string]AP_Imported_Material_Property)
 		new_material.name = string(name)
@@ -285,14 +326,21 @@ load_all_materials :: proc(cgltf_data : ^cgltf.data){
 		//get and load textures on material
 		if has_pbr_metallic_roughness{
 			//get texture from glb or directory
-			//base color 
-			//metallic texture
-			//base color factgor
-			//metallic factor
-			//roughness factor
+		fmt.println(material.pbr_metallic_roughness)
+			if pbr_metallic_roughness.base_color_texture.texture != nil{
+				id := get_texture_id(pbr_metallic_roughness.base_color_texture.texture)
+				fmt.println("Material has base texture : ",id)
+				new_material.properties["base_texture_id"] = {"base_texture_id",id}
+			}
+			new_material.properties["base_color_factor"] = {"base_color_factor",m.float4(material.pbr_metallic_roughness.base_color_factor)}
+			if pbr_metallic_roughness.metallic_roughness_texture.texture != nil{
+				new_material.properties["mettalic_rougness_texture_id"] = {"mettalic_rougness_texture_id",get_texture_id(pbr_metallic_roughness.metallic_roughness_texture.texture)}
+			}
+			new_material.properties["metallic_factor"] = {"metallic_factor",pbr_metallic_roughness.metallic_factor}
+			new_material.properties["roughness_factor"] = {"roughness_factor",pbr_metallic_roughness.roughness_factor}
 			//extras? 
 		}
-
+//TODO(Ray):Add these in later 
 		if has_pbr_specular_glossiness{
 			//specular texture
 			//glossinesss
@@ -301,6 +349,10 @@ load_all_materials :: proc(cgltf_data : ^cgltf.data){
 			//glossiness
 		}
 		//normal texture
+		if pbr_metallic_roughness.base_color_texture.texture != nil{
+			new_material.properties["base_texture_id"] = {"base_texture_id",get_texture_id(pbr_metallic_roughness.base_color_texture.texture)}
+		}
+
 		//emiisive texture
 		//emmisive factor
 

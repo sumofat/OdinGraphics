@@ -179,11 +179,7 @@ create_pass ::  proc(this : ^Renderer,init : proc(data : rawptr,),setup : proc(d
 
 execute_renderer ::  proc(name : string,$T : typeid){
 	//TODO(Ray):We need a where clause to make sure we dont pass invalid types
-	fmt.println(name)
-	
 	renderer_to_exec : ^DefferedRenderer = get_renderer(name,T)
-	fmt.println(renderer_to_exec)
-fmt.println("\n")
 	for pass in renderer_to_exec.renderer.passes.buffer{
 		pass.setup(renderer_to_exec)
 		pass.execute(renderer_to_exec)
@@ -342,7 +338,6 @@ set_primitive_topology_dx11 :: proc(dev : Device,topology : D3D11.PRIMITIVE_TOPO
 }
 
 gbuffer_init ::  proc(data : rawptr){
-	fmt.println("GBUFFINIT")
 	defered_renderer := (^DefferedRenderer)(data)
 	when RENDERER == RENDER_TYPE.DX11{
 		gbuffer_init_dx11(&def_renderer)
