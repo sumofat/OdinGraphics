@@ -246,16 +246,16 @@ create_mesh_from_cgltf_mesh  :: proc(ma : ^cgltf.mesh,material : Material,path :
                     tv := mat.pbr_metallic_roughness.base_color_texture
                     {
                         using fmt
-                        offset := cast(u64)tv.texture.image.buffer_view.offset
-                        tex_data := mem.ptr_offset(cast(^u8)tv.texture.image.buffer_view.buffer.data,cast(int)offset)
+                        offset := cast(u64)tv.texture.image_ref.buffer_view.offset
+                        tex_data := mem.ptr_offset(cast(^u8)tv.texture.image_ref.buffer_view.buffer.data,cast(int)offset)
                         println(offset)
 		                //TODO(Ray):This if statement is not good
                         if tex_data != nil
                         {
-                            data_size := cast(u64)tv.texture.image.buffer_view.size
+                            data_size := cast(u64)tv.texture.image_ref.buffer_view.size
                             to_image_path : string
-                            if tv.texture.image.uri != ""{
-                                to_image_path = string(tv.texture.image.uri)
+                            if tv.texture.image_ref.uri != ""{
+                                to_image_path = string(tv.texture.image_ref.uri)
                             }else{
                                 to_image_path = fmt.tprintf("%d",offset + 1)
                             }

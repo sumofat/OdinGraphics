@@ -23,6 +23,7 @@ CPULoadedTextureResult :: struct{
 	dim : m.float2,
 	size : u32,
 	texels : rawptr,
+	channel_count : int,
 }
 
 //Represents a shader resource view texture for the gpu renderer
@@ -30,6 +31,7 @@ Texture :: struct{
 	dim : m.float2,
 	size : u32,
 	location : TextureLocation,
+	channel_count : int,
 }
 
 TextureLocation :: struct{
@@ -42,15 +44,14 @@ texture_cache : con.AnyCache(u64,Texture)
 
 // NOTE(Ray Garner):stbi_info always returns 8bits/1byte per channels if we want to load 16bit or float need to use a 
 //Will probaby need a different path for HDR textures etc..
-image_from_mem :: proc(ptr : ^u8,size : i32) -> (m.float2,rawptr){
+image_from_mem :: proc(ptr : ^u8,size : i32) -> (m.float2,rawptr,int){
     dimx : i32
     dimy : i32
 	chan_count : clib.int
     result_ptr := stbi.load_from_memory(ptr,size,&dimx,&dimy,&chan_count,0)
     result_dim := m.float2{cast(f32)dimx,cast(f32)dimy}
 	assert(result_ptr != nil)
-	assert(chan_count == 4)
-	return result_dim,result_ptr
+	return result_dim,result_ptr,int(chan_count)
 }
 
 image_from_file :: proc(filename : cstring,size : i32) -> (m.float2,rawptr){
@@ -60,7 +61,6 @@ image_from_file :: proc(filename : cstring,size : i32) -> (m.float2,rawptr){
     result_ptr := stbi.load(filename,&dimx,&dimy,&chan_count,0)
     result_dim := m.float2{cast(f32)dimx,cast(f32)dimy}
 	assert(result_ptr != nil)
-	assert(chan_count == 4)
 	return result_dim,result_ptr
 }
 
@@ -75,7 +75,7 @@ texture_from_file :: proc(file : cstring,size : i32,desired_channels : i32) -> C
 texture_from_mem :: proc(ptr : ^u8,size : i32,desired_channels : i32) -> CPULoadedTextureResult{
     tex : CPULoadedTextureResult
 	tex.size = u32(tex.dim.x * tex.dim.y * 4)
-    tex.dim,tex.texels = image_from_mem(ptr,size)
+    tex.dim,tex.texels,tex.channel_count = image_from_mem(ptr,size)
     assert(tex.texels != nil)
     return tex
 }

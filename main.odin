@@ -10,6 +10,7 @@ import runtime "core:runtime"
 import la "core:math/linalg"
 import m "core:math/linalg/hlsl"
 import render "render"
+import con "containers"
 /*
 Remove the windows specific part of the windows
 
@@ -45,6 +46,10 @@ main :: proc(){
 	render.init(windows.HWND(window_data.hwnd))
 
 	render.load_scene("lantern.glb")
+
+	scene_node_first := con.buf_ptr(&render.scene_nodes,0)
+	render.read_nodes(scene_node_first)
+
 
 	for{
 		handle_msgs(&window_data)

@@ -65,6 +65,7 @@ AP_Imported_Mesh_Property_Type :: union{
 AP_Imported_Material_Property_Type :: union{
 	bool,
 	m.float,
+	m.float3,
 	m.float4,
 	string,
 	Alpha_Mode,
@@ -101,6 +102,7 @@ AP_Imported_Texture :: struct{
 	dim : m.float2,
 	byte_size : int,
 	texels : rawptr,
+	channel_count : int,
 	sampler : AP_Imported_Sampler,
 }
 
@@ -239,12 +241,13 @@ load_scene :: proc(path : string) -> (bool){
 				root_node.component = buf_init(1,SceneComponent)
 				root_node.children = buf_init(1,SceneNode)
 				root_node.transform = transform_init()			
-				buf_push(&scene_nodes,root_node)
 				load_node(node,&root_node.children)
+				buf_push(&scene_nodes,root_node)
 			}
 		}
-		load_all_materials(cgltf_data)
+		load_all_images(cgltf_data)
 		load_all_textures(cgltf_data)
+		load_all_materials(cgltf_data)
 	}
 	return true
 }
@@ -253,6 +256,7 @@ get_texture :: proc(uri : string,ptr : ^u8,size : int) -> (AP_Imported_Texture,b
     result : AP_Imported_Texture
     using con
 
+	fmt.println("GETTEXTURE : URI : ",uri)
     lookup_key := u64(hash.murmur64(transmute([]u8)uri))
     if anycache_exist(&ap_texture_cache,lookup_key){
         t := anycache_get(&ap_texture_cache,lookup_key)
@@ -272,10 +276,10 @@ get_texture :: proc(uri : string,ptr : ^u8,size : int) -> (AP_Imported_Texture,b
 
 get_texture_id :: proc(texture : ^cgltf.texture)->string{
 	assert(texture != nil)
-	offset := cast(u64)texture.image.buffer_view.offset
+	offset := cast(u64)texture.image_ref.buffer_view.offset
 	to_image_path : string
-	if texture.image.uri != ""{
-		to_image_path = string(texture.image.uri)
+	if texture.image_ref.uri != ""{
+		to_image_path = string(texture.image_ref.uri)
 	}else{
 		to_image_path = fmt.tprintf("%d",offset + 1)
 	}
@@ -288,24 +292,35 @@ get_texture_id :: proc(texture : ^cgltf.texture)->string{
 	return path_and_texture_name
 }
 
+load_all_images :: proc(cgltf_data : ^cgltf.data){
+	images := cgltf_data.images[:cgltf_data.images_count]
+	for image in images{
+		fmt.println(image)
+	}
+}
+
 load_all_textures :: proc(cgltf_data : ^cgltf.data){
 	textures := cgltf_data.textures[:cgltf_data.textures_count]
 	for texture in &textures{
+		fmt.println(texture)
 		new_texture : AP_Imported_Texture
 		new_texture.name = string(texture.name)
 
-		if texture.image == nil{continue}
-		offset := cast(u64)texture.image.buffer_view.offset
-		tex_data := mem.ptr_offset(cast(^u8)texture.image.buffer_view.buffer.data,cast(int)offset)
+		if texture.image_ref == nil{continue}
+		offset := cast(u64)texture.image_ref.buffer_view.offset
+		tex_data := mem.ptr_offset(cast(^u8)texture.image_ref.buffer_view.buffer.data,cast(int)offset)
 		fmt.println(offset)
 		assert(tex_data != nil)
-		data_size := cast(u64)texture.image.buffer_view.size
+		data_size := cast(u64)texture.image_ref.buffer_view.size
 
 		//TODO(Ray):Revisit this texture stuff seems like a bit of nonsense.
-		if t,ok := get_texture(get_texture_id(&texture),tex_data,int(data_size));ok{
+		tx_id := get_texture_id(&texture)
+		fmt.println("TEXID: ",tx_id)
+		if t,ok := get_texture(tx_id,tex_data,int(data_size));ok{
 			new_texture.dim = t.dim
 			new_texture.byte_size = int(t.byte_size)
 			new_texture.texels = t.texels
+			new_texture.channel_count = t.channel_count
 			con.buf_push(&asset_pipeline.textures,new_texture)
 		}else{
 			assert(false)
@@ -334,6 +349,8 @@ load_all_materials :: proc(cgltf_data : ^cgltf.data){
 			}
 			new_material.properties["base_color_factor"] = {"base_color_factor",m.float4(material.pbr_metallic_roughness.base_color_factor)}
 			if pbr_metallic_roughness.metallic_roughness_texture.texture != nil{
+				id := get_texture_id(pbr_metallic_roughness.metallic_roughness_texture.texture)
+				fmt.println("Material has mettalic roughness texture : ",id)
 				new_material.properties["mettalic_rougness_texture_id"] = {"mettalic_rougness_texture_id",get_texture_id(pbr_metallic_roughness.metallic_roughness_texture.texture)}
 			}
 			new_material.properties["metallic_factor"] = {"metallic_factor",pbr_metallic_roughness.metallic_factor}
@@ -343,7 +360,13 @@ load_all_materials :: proc(cgltf_data : ^cgltf.data){
 //TODO(Ray):Add these in later 
 		if has_pbr_specular_glossiness{
 			//specular texture
+			if pbr_specular_glossiness.specular_glossiness_texture.texture != nil{
+				id := get_texture_id(pbr_specular_glossiness.specular_glossiness_texture.texture)
+				fmt.println("Material has specular glossiness texture : ",id)
+				new_material.properties["specular_glossiness_texture_id"] = {"specular_glossiness_texture_id",id}
+			}
 			//glossinesss
+			new_material.properties["specular_glossiness"] = {"specular_glossiness",m.float3(pbr_specular_glossiness.specular_factor)}
 			//diffuse factor
 			//specular 
 			//glossiness
@@ -471,7 +494,6 @@ load_primitive :: proc(primitive : cgltf.primitive)-> (AP_Imported_Mesh,bool){
 	}
 	return mesh,true
 }
-
 
 load_mesh :: proc(using mesh : ^cgltf.mesh) -> AP_Imported_Mesh{
 	result : AP_Imported_Mesh
