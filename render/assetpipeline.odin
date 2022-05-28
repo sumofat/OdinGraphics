@@ -91,6 +91,7 @@ AP_Imported_Material :: struct{
 AP_Imported_Mesh :: struct{
 	id : int,
 	name : string,
+	is_indexed : bool,
 	properties : map[string]AP_Imported_Mesh_Property,
 	material_name : string,
 	primitives : con.Buffer(AP_Imported_Mesh),
@@ -412,7 +413,6 @@ load_primitive :: proc(primitive : cgltf.primitive)-> (AP_Imported_Mesh,bool){
 		ibuf := indices.buffer_view.buffer                
 
 		if indices.component_type == .r_16u{
-
 			indices_size :=  cast(u64)indices.count * size_of(u16)
 			indices_buffer := cast(^u16)mem.ptr_offset(cast(^u8)ibuf.data,cast(int)istart_offset)
 			outindex_f := cast(^u16)mem.alloc(cast(int)indices_size)
@@ -421,11 +421,7 @@ load_primitive :: proc(primitive : cgltf.primitive)-> (AP_Imported_Mesh,bool){
 			mesh.properties["index_type"] = AP_Imported_Mesh_Property{"index_type",.r_16u}
 			mesh.properties["index_data"] = AP_Imported_Mesh_Property{"index_data",rawptr(outindex_f)}
 			mesh.properties["index_size"] = AP_Imported_Mesh_Property{"index_size",size_of(u16) * cast(u64)indices.count}
-			mesh.properties["index_count"] = AP_Imported_Mesh_Property{"index_count",indices.count}
-			//con.buf_push(&mesh.properties,AP_Imported_Material_Property{"indices",rawptr(outindex_f)})
-			//mesh.index_16_data = outindex_f
-			//mesh.index_16_data_size = size_of(u16) * cast(u64)indices.count
-			//mesh.index16_count = cast(u64)indices.count                    
+			mesh.properties["index_count"] = AP_Imported_Mesh_Property{"index_count",int(indices.count)}
 		}else if primitive.indices.component_type == .r_32u{
 
 			indices_size :=  cast(u64)indices.count * size_of(u32)
@@ -437,7 +433,7 @@ load_primitive :: proc(primitive : cgltf.primitive)-> (AP_Imported_Mesh,bool){
 			mesh.properties["index_type"] = AP_Imported_Mesh_Property{"index_type",.r_32u}
 			mesh.properties["index_data"] = AP_Imported_Mesh_Property{"index_data",rawptr(outindex_f)}
 			mesh.properties["index_size"] = AP_Imported_Mesh_Property{"index_size",size_of(u32) * cast(u64)indices.count}
-			mesh.properties["index_count"] = AP_Imported_Mesh_Property{"index_count",indices.count}
+			mesh.properties["index_count"] = AP_Imported_Mesh_Property{"index_count",int(indices.count)}
 		}
 	}
 
@@ -465,20 +461,20 @@ load_primitive :: proc(primitive : cgltf.primitive)-> (AP_Imported_Mesh,bool){
 
 		if type == .position{
 			mesh.properties["position_data"] = AP_Imported_Mesh_Property{"position_data",rawptr(outf)}
-			mesh.properties["position_size"] = AP_Imported_Mesh_Property{"position_size",num_bytes}
-			mesh.properties["position_count"] = AP_Imported_Mesh_Property{"position_count",count}
+			mesh.properties["position_size"] = AP_Imported_Mesh_Property{"position_size",int(num_bytes)}
+			mesh.properties["position_count"] = AP_Imported_Mesh_Property{"position_count",int(count)}
 		}
 
 		if type == .normal{
 			mesh.properties["normal_data"] = AP_Imported_Mesh_Property{"normal_data",rawptr(outf)}
-			mesh.properties["normal_size"] = AP_Imported_Mesh_Property{"normal_size",num_bytes}
-			mesh.properties["normal_count"] = AP_Imported_Mesh_Property{"normal_count",count}
+			mesh.properties["normal_size"] = AP_Imported_Mesh_Property{"normal_size",int(num_bytes)}
+			mesh.properties["normal_count"] = AP_Imported_Mesh_Property{"normal_count",int(count)}
 		}
 
 		if type == .tangent{
 			mesh.properties["tangent_data"] = AP_Imported_Mesh_Property{"tangent_data",rawptr(outf)}
-			mesh.properties["tangent_size"] = AP_Imported_Mesh_Property{"tangent_size",num_bytes}
-			mesh.properties["tangent_count"] = AP_Imported_Mesh_Property{"tangent_count",count}
+			mesh.properties["tangent_size"] = AP_Imported_Mesh_Property{"tangent_size",int(num_bytes)}
+			mesh.properties["tangent_count"] = AP_Imported_Mesh_Property{"tangent_count",int(count)}
 		}
 
 		if type == .texcoord{
@@ -486,8 +482,8 @@ load_primitive :: proc(primitive : cgltf.primitive)-> (AP_Imported_Mesh,bool){
 			assert(tex_i < 1)
 
 			mesh.properties["tex_coord"] = AP_Imported_Mesh_Property{"texcoord",rawptr(outf)}
-			mesh.properties["tex_coord_size"] = AP_Imported_Mesh_Property{"tex_coord_size",num_bytes}
-			mesh.properties["tex_coord__count"] = AP_Imported_Mesh_Property{"tex_coord_count",count}
+			mesh.properties["tex_coord_size"] = AP_Imported_Mesh_Property{"tex_coord_size",int(num_bytes)}
+			mesh.properties["tex_coord_count"] = AP_Imported_Mesh_Property{"tex_coord_count",int(count)}
 
 			tex_i += 1
 		}

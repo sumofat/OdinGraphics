@@ -69,6 +69,10 @@ RENDER_TYPE :: enum{
 
 RENDERER : RENDER_TYPE  : RENDER_TYPE.DX11 
 
+RenderGeometry :: union{
+	RenderGeometryIndexed,
+	RenderGeometryNonIndexed,
+}
 //Commands for Renderer
 RenderCommand :: struct{
 	geometry : RenderGeometry,
@@ -81,8 +85,33 @@ RenderCommand :: struct{
 	material_name:string,
 }
 
-RenderGeometry :: struct {
-	buffer_id_range: m.int2,
+RenderGeometryBufferType :: enum{
+	position,
+	normal,
+	texcoords,
+	tangent,
+	bitangent,
+}
+
+RenderGeometryBuffer :: struct{
+	type : RenderGeometryBufferType,
+	buffer : rawptr,
+	size : int,
+	count : int,
+}
+
+RenderGeometryIndexed :: struct {
+	index_buffer: rawptr,
+	buffers : con.Buffer(RenderGeometryBuffer),
+	count:           int,
+	offset:          int,
+	index_count:     int,
+	is_indexed:      bool,
+	base_color:      m.float4,
+}
+
+RenderGeometryNonIndexed :: struct {
+	buffers : con.Buffer(RenderGeometryBuffer),
 	count:           int,
 	offset:          int,
 	index_id:        int,
@@ -101,7 +130,6 @@ RenderTarget :: struct{
 }
 
 RenderShader :: struct{
-
 }
 
 DepthStencil :: struct{
@@ -231,6 +259,11 @@ gbuffer_execute_dx11 ::  proc(data : rawptr){
 	using con
 	def_data : ^DefferedRenderer = (^DefferedRenderer)(data)
 	for command in def_data.gbuff_data.render_commands.buffer{
+		geo := command.geometry.(RenderGeometryIndexed)
+		if !command.is_indexed{
+			assert(false)
+			//command = com.geometry.(RenderGeometryNonIndexed)
+		}
 		//world_matrix := buf_get(&matrix_cpu_buffer,u64(command.model_matrix_id))
 		world_matrix := cpu_matrix_buffer->get_matrix(u64(command.model_matrix_id))
 		camera := def_data.gbuff_data.camera
@@ -239,7 +272,7 @@ gbuffer_execute_dx11 ::  proc(data : rawptr){
 		view_matrix : float4x4 = camera_matrix * world_matrix
 		clip_matrix : float4x4 = projection_matrix * view_matrix
 
-		base_color := command.geometry.base_color
+		base_color := geo.base_color
 		
 		//push to gpu buffer
 		view_matrix_id := gpu_matrix_buffer->get_current_matrix_id()
@@ -285,27 +318,37 @@ gbuffer_execute_dx11 ::  proc(data : rawptr){
 			buf_free(&offsets)
 			buf_free(&strides)
 		}
-		for i : int = command.geometry.buffer_id_range.x;i < command.geometry.buffer_id_range.y;i += 1{
+		for buf in geo.buffers.buffer{
+			//bv := buf_get(&buffer_table.vertex_buffers,u64(i))
+			//buf_push(&temp_working_vertex_buffers,bv)
+			//buf_push(&strides,bv.stride_in_bytes)
+			//buf_push(&offsets,0)
+
+		}
+		/*
+		for i : int = geo.buffer_id_range.x;i < command.geometry.buffer_id_range.y;i += 1{
 			bv := buf_get(&buffer_table.vertex_buffers,u64(i))
 			buf_push(&temp_working_vertex_buffers,bv)
 			buf_push(&strides,bv.stride_in_bytes)
 			buf_push(&offsets,0)
 		}
+		*/
 		defer{buf_clear(&temp_working_vertex_buffers)}
 		set_vertex_buffers(device,0,1,temp_working_vertex_buffers.buffer[:],strides.buffer[:],offsets.buffer[:])
 
 		//than execute draw commands
 		if command.is_indexed{
-			ibv := buf_get(&buffer_table.index_buffers,u64(command.geometry.index_id))
+			//ibv := buf_get(&buffer_table.index_buffers,u64(command.geometry.index_id))
+			ibv := geo.index_buffer
 			offset : u32 = 0
 
-			set_index_buffer(device,ibv,ibv.format,offset)
-			index_count : u32 = u32(command.geometry.index_count)
-			start_index_location : u32 = u32(command.geometry.offset)
+			//set_index_buffer(device,ibv,ibv.format,offset)
+			index_count : u32 = u32(geo.index_count)
+			start_index_location : u32 = u32(geo.offset)
 			base_vertex_location : i32 = 0
 			draw_indexed(device,index_count,start_index_location,base_vertex_location)
 		}else{
-			draw(device,u32(command.geometry.count), u32(command.geometry.offset))
+			draw(device,u32(geo.count), u32(geo.offset))
 		}
 
 		//end command list
