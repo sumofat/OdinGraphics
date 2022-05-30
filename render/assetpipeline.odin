@@ -52,11 +52,15 @@ AP_Imported_Mesh_Property_Type :: union{
 	Component_Type,
 	uint,
 	int,
+	i16,
+	i32,
+	i64,
 	u16,
 	u32,
 	u64,
 	m.float,
 	m.float4,
+	string,
 	con.Buffer(f32),
 	con.Buffer(u64),
 	con.Buffer(u32),
@@ -170,6 +174,7 @@ SceneNode :: struct{
 asset_pipeline : Asset_Pipeline
 scene_nodes : con.Buffer(SceneNode)
 ap_texture_cache : con.AnyCache(u64,AP_Imported_Texture)
+ap_material_cache : con.AnyCache(u64,AP_Imported_Material)
 
 init_asset_pipeline :: proc(){
 	using con
@@ -178,6 +183,7 @@ init_asset_pipeline :: proc(){
 	asset_pipeline.textures = buf_init(1,AP_Imported_Texture)
 	asset_pipeline.materials = buf_init(1,AP_Imported_Material)
 	ap_texture_cache = anycache_init(u64,AP_Imported_Texture,false)
+	ap_material_cache = anycache_init(u64,AP_Imported_Material,false)
 }
 
 load_node :: proc(gltf_node : ^cgltf.node,list : ^con.Buffer(SceneNode)){
@@ -334,6 +340,10 @@ load_all_materials :: proc(cgltf_data : ^cgltf.data){
 	for material in materials{
 		using material
 
+		//TODO(RAY):Need to define a full path so weo dont get collision between 
+		//material definitions in different files
+		//this is fo rtesting only
+		mat_name : string = string(material.name)
 		fmt.println("Loading material : ", material.name)
 		new_material : AP_Imported_Material
 		new_material.properties = make(map[string]AP_Imported_Material_Property)
@@ -400,6 +410,9 @@ load_all_materials :: proc(cgltf_data : ^cgltf.data){
 		new_prop.prop = bool(unlit) 
 		new_material.properties["unlit"] = new_prop
 
+
+		key := u64(hash.murmur64(transmute([]u8)new_material.name))
+		con.anycache_add(&ap_material_cache,key,new_material)
 		//etc...
 	}
 }
@@ -407,11 +420,12 @@ load_all_materials :: proc(cgltf_data : ^cgltf.data){
 load_primitive :: proc(primitive : cgltf.primitive)-> (AP_Imported_Mesh,bool){
 	mesh : AP_Imported_Mesh
 	if primitive.type != .triangles{return mesh,false}
+	mesh.properties["material_id"] = AP_Imported_Mesh_Property{"material_id",string(primitive.material.name)}
 	if primitive.indices != nil{
 		using primitive
 		istart_offset := indices.offset + indices.buffer_view.offset
 		ibuf := indices.buffer_view.buffer                
-
+		mesh.is_indexed = true
 		if indices.component_type == .r_16u{
 			indices_size :=  cast(u64)indices.count * size_of(u16)
 			indices_buffer := cast(^u16)mem.ptr_offset(cast(^u8)ibuf.data,cast(int)istart_offset)
@@ -463,18 +477,22 @@ load_primitive :: proc(primitive : cgltf.primitive)-> (AP_Imported_Mesh,bool){
 			mesh.properties["position_data"] = AP_Imported_Mesh_Property{"position_data",rawptr(outf)}
 			mesh.properties["position_size"] = AP_Imported_Mesh_Property{"position_size",int(num_bytes)}
 			mesh.properties["position_count"] = AP_Imported_Mesh_Property{"position_count",int(count)}
+			mesh.properties["position_stride"] = AP_Imported_Mesh_Property{"position_stride",int(size_of(m.float3))}
+
 		}
 
 		if type == .normal{
 			mesh.properties["normal_data"] = AP_Imported_Mesh_Property{"normal_data",rawptr(outf)}
 			mesh.properties["normal_size"] = AP_Imported_Mesh_Property{"normal_size",int(num_bytes)}
 			mesh.properties["normal_count"] = AP_Imported_Mesh_Property{"normal_count",int(count)}
+			mesh.properties["normal_stride"] = AP_Imported_Mesh_Property{"normal_stride",int(size_of(m.float3))}
 		}
 
 		if type == .tangent{
 			mesh.properties["tangent_data"] = AP_Imported_Mesh_Property{"tangent_data",rawptr(outf)}
 			mesh.properties["tangent_size"] = AP_Imported_Mesh_Property{"tangent_size",int(num_bytes)}
 			mesh.properties["tangent_count"] = AP_Imported_Mesh_Property{"tangent_count",int(count)}
+			mesh.properties["tangent_stride"] = AP_Imported_Mesh_Property{"tangent_stride",int(size_of(m.float3))}
 		}
 
 		if type == .texcoord{
@@ -484,6 +502,7 @@ load_primitive :: proc(primitive : cgltf.primitive)-> (AP_Imported_Mesh,bool){
 			mesh.properties["tex_coord"] = AP_Imported_Mesh_Property{"texcoord",rawptr(outf)}
 			mesh.properties["tex_coord_size"] = AP_Imported_Mesh_Property{"tex_coord_size",int(num_bytes)}
 			mesh.properties["tex_coord_count"] = AP_Imported_Mesh_Property{"tex_coord_count",int(count)}
+			mesh.properties["tex_coord_stride"] = AP_Imported_Mesh_Property{"tex_coord_stride",int(size_of(m.float2))}
 
 			tex_i += 1
 		}

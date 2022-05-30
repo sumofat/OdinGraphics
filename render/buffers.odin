@@ -225,7 +225,6 @@ set_vertex_buffers :: proc(dev : Device,start_slot : u32,num_buffers : u32,verte
 	}
 }
 
-
 init_index_buffer :: proc(device : Device,const_data : $T,byte_size : u32)-> IndexBuffer{
 	result : IndexBuffer
 	when RENDERER == RENDER_TYPE.DX11{

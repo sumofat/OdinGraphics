@@ -69,57 +69,6 @@ RENDER_TYPE :: enum{
 
 RENDERER : RENDER_TYPE  : RENDER_TYPE.DX11 
 
-RenderGeometry :: union{
-	RenderGeometryIndexed,
-	RenderGeometryNonIndexed,
-}
-//Commands for Renderer
-RenderCommand :: struct{
-	geometry : RenderGeometry,
-	material_id : u64,
-	model_matrix_id : int,
-	camera_matrix_id:      u64,
-	perspective_matrix_id: u64,
-	texture_range : m.int2, 
-	is_indexed:bool,
-	material_name:string,
-}
-
-RenderGeometryBufferType :: enum{
-	position,
-	normal,
-	texcoords,
-	tangent,
-	bitangent,
-}
-
-RenderGeometryBuffer :: struct{
-	type : RenderGeometryBufferType,
-	buffer : rawptr,
-	size : int,
-	count : int,
-}
-
-RenderGeometryIndexed :: struct {
-	index_buffer: rawptr,
-	buffers : con.Buffer(RenderGeometryBuffer),
-	count:           int,
-	offset:          int,
-	index_count:     int,
-	is_indexed:      bool,
-	base_color:      m.float4,
-}
-
-RenderGeometryNonIndexed :: struct {
-	buffers : con.Buffer(RenderGeometryBuffer),
-	count:           int,
-	offset:          int,
-	index_id:        int,
-	index_count:     int,
-	is_indexed:      bool,
-	base_color:      m.float4,
-}
-
 BaseRenderCommandList :: struct{
 	list : con.Buffer(RenderCommand),
 }
@@ -259,7 +208,13 @@ gbuffer_execute_dx11 ::  proc(data : rawptr){
 	using con
 	def_data : ^DefferedRenderer = (^DefferedRenderer)(data)
 	for command in def_data.gbuff_data.render_commands.buffer{
-		geo := command.geometry.(RenderGeometryIndexed)
+		geo : RenderGeometryIndexed
+		if geo,ok := command.geometry.(RenderGeometryIndexed);!ok{
+			fmt.println("ERROR: NO geometry ON THIS COMMAND")
+			continue
+		}
+
+		fmt.println("executing command")
 		if !command.is_indexed{
 			assert(false)
 			//command = com.geometry.(RenderGeometryNonIndexed)
@@ -303,38 +258,36 @@ gbuffer_execute_dx11 ::  proc(data : rawptr){
 		slice_rect : []RECT = {s_rect}
 		set_scissor_rects(device,1,slice_rect)
 		//get the material
-		get_material_by_id(command.material_id)
+		material := command.material
+		//TODO(RAY):Using temp shaders for testing.
+
 		//set pipeline state not needed for dx11 
 		set_primitive_topology_dx11(device,D3D11.PRIMITIVE_TOPOLOGY.TRIANGLELIST)
 		//context->IASetInputLayout(m_pInputLayout.Get());
 		//sets constants
 		constant_matrix_buffer_slice := []ConstantBuffer(float4x4){const_buf_matrix_gpu}
 		set_constant_buffers(device,0,float4x4,constant_matrix_buffer_slice)
-		
+
 		//set buffers for stages
+		/*
 		strides : con.Buffer(u32) = buf_init(1,u32)
 		offsets : con.Buffer(u32) = buf_init(1,u32)
 		defer{
 			buf_free(&offsets)
 			buf_free(&strides)
 		}
-		for buf in geo.buffers.buffer{
-			//bv := buf_get(&buffer_table.vertex_buffers,u64(i))
-			//buf_push(&temp_working_vertex_buffers,bv)
-			//buf_push(&strides,bv.stride_in_bytes)
-			//buf_push(&offsets,0)
-
-		}
-		/*
-		for i : int = geo.buffer_id_range.x;i < command.geometry.buffer_id_range.y;i += 1{
-			bv := buf_get(&buffer_table.vertex_buffers,u64(i))
-			buf_push(&temp_working_vertex_buffers,bv)
-			buf_push(&strides,bv.stride_in_bytes)
-			buf_push(&offsets,0)
-		}
 		*/
-		defer{buf_clear(&temp_working_vertex_buffers)}
-		set_vertex_buffers(device,0,1,temp_working_vertex_buffers.buffer[:],strides.buffer[:],offsets.buffer[:])
+
+		if buf_len(geo.buffers) > 0{
+			set_vertex_buffers_dx11(device,0,1,transmute([]^D3D11.IBuffer)(geo.buffers.buffer[:]),geo.buffers_strides.buffer[:],geo.buffers_offsets.buffer[:])
+		}
+
+		//for buf in geo.buffers.buffer{
+//			set_vertex_buffers(device,0,1,buf.buffer,buf.stride,buf.count)
+		//}
+		//defer{buf_clear(&temp_working_vertex_buffers)}
+		//set_vertex_buffers(device,0,1,temp_working_vertex_buffers.buffer[:],strides.buffer[:],offsets.buffer[:])
+		//set_vertex_buffers(device,0,1,temp_working_vertex_buffers.buffer[:],strides.buffer[:],offsets.buffer[:])
 
 		//than execute draw commands
 		if command.is_indexed{
