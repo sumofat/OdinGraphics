@@ -15,14 +15,12 @@ import intrinsics "core:intrinsics"
 
 base_list : BaseRenderCommandList
 
-//Commands for Renderer
 RenderCommand :: struct{
 	geometry : RenderGeometry,
-	//material_id : u64,
 	material : AP_Imported_Material,
-	model_matrix_id : int,
-	camera_matrix_id:      u64,
-	perspective_matrix_id: u64,
+	model_matrix : m.float4x4,
+	//camera_matrix :      m.float4x4,
+	//perspective_matrix : m.float4x4,
 	texture_range : m.int2, 
 	is_indexed:bool,
 	material_name:string,

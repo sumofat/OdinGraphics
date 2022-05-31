@@ -50,7 +50,7 @@ renderers_map : map[string]rawptr
 MAX_STRUCT_BUFFER_SIZE :: 512
 
 @(private)
-const_buf_matrix_gpu : ConstantBuffer(m.float4x4)
+const_buf_matrix_gpu : StructuredBuffer(m.float4x4)
 
 get_renderer ::  proc(name : string,$T : typeid)-> ^T{
 	render_ptr : ^rawptr = &renderers_map[name]
@@ -123,7 +123,7 @@ GBufferData :: struct{
 	render_targets:     map[string]RenderTarget,
 	depth_stencils : map[string]DepthStencil,
 	shader:             RenderShader,
-	camera : ^camera.Camera,
+	camera : camera.Camera,
 	render_commands : con.Buffer(RenderCommand),
 }
 
@@ -184,7 +184,7 @@ gbuffer_init_dx11 ::  proc(data : rawptr){
 gbuffer_setup_dx11 :: proc(data : rawptr){
 	using con
 	def_data : ^DefferedRenderer = (^DefferedRenderer)(data)
-	clear_color : [4]f32 = {0,0,0,0}
+	clear_color : [4]f32 = {0,1,0,0}
 	diffuse_rt : RenderTarget = def_data.gbuff_data.render_targets["diffuse"]
 	normal_rt : RenderTarget = def_data.gbuff_data.render_targets["normal"]
 	position_rt : RenderTarget = def_data.gbuff_data.render_targets["position"]
@@ -196,11 +196,7 @@ gbuffer_setup_dx11 :: proc(data : rawptr){
 	clear_render_target(def_data.gbuff_data.device,diffuse_rt,clear_color)
 	clear_render_target(def_data.gbuff_data.device,normal_rt,clear_color)
 	clear_render_target(def_data.gbuff_data.device,position_rt,clear_color)
-	clear_depth_stencil(def_data.gbuff_data.device,default_depth_stencil,D3D11.CLEAR_FLAG.DEPTH | D3D11.CLEAR_FLAG.STENCIL,0,0)
-}
-
-init_temp_mem :: proc(){
-	temp_working_vertex_buffers = con.buf_init(1,VertexBuffer)
+	//clear_depth_stencil(def_data.gbuff_data.device,default_depth_stencil,D3D11.CLEAR_FLAG.DEPTH | D3D11.CLEAR_FLAG.STENCIL,0,0)
 }
 
 gbuffer_execute_dx11 ::  proc(data : rawptr){
@@ -220,7 +216,7 @@ gbuffer_execute_dx11 ::  proc(data : rawptr){
 			//command = com.geometry.(RenderGeometryNonIndexed)
 		}
 		//world_matrix := buf_get(&matrix_cpu_buffer,u64(command.model_matrix_id))
-		world_matrix := cpu_matrix_buffer->get_matrix(u64(command.model_matrix_id))
+		world_matrix := command.model_matrix//cpu_matrix_buffer->get_matrix(u64(command.model_matrix_id))
 		camera := def_data.gbuff_data.camera
 		camera_matrix := camera.mat
 		projection_matrix := camera.projection_matrix
@@ -228,66 +224,57 @@ gbuffer_execute_dx11 ::  proc(data : rawptr){
 		clip_matrix : float4x4 = projection_matrix * view_matrix
 
 		base_color := geo.base_color
-		
+
 		//push to gpu buffer
 		view_matrix_id := gpu_matrix_buffer->get_current_matrix_id()
-		//view_matrix_id := buf_len(matrix_gpu_buffer) * size_of(m.float4x4)
-		//buf_push(&matrix_gpu_buffer,view_matrix)
 		gpu_matrix_buffer->add_matrix(view_matrix)
 
-		//clip_matrix_id := buf_len(matrix_gpu_buffer) * size_of(m.float4x4)
 		clip_matrix_id := gpu_matrix_buffer->get_current_matrix_id()
-
-	//	buf_push(&matrix_gpu_buffer,clip_matrix)
 		gpu_matrix_buffer->add_matrix(clip_matrix)
+
 		//set rendertargets
 		device := def_data.gbuff_data.device
-		
+
 		render_targets_to_set : []RenderTarget = make([]RenderTarget,3)
 		render_targets_map := def_data.gbuff_data.render_targets
 		render_targets_to_set[0] = render_targets_map["diffuse"]
 		render_targets_to_set[1] = render_targets_map["normal"]
 		render_targets_to_set[2] = render_targets_map["position"]
-		
 		set_render_targets(device,render_targets_to_set,3)
+
 		//set viewport 
 		bb_size := get_backbuffer_size()
 		set_viewport(device,float2{0,0},bb_size)
+
 		//set scissor rect
 		s_rect : RECT = {0,0,i32(bb_size.x),i32(bb_size.y)}
 		slice_rect : []RECT = {s_rect}
 		set_scissor_rects(device,1,slice_rect)
+
 		//get the material
-		material := command.material
 		//TODO(RAY):Using temp shaders for testing.
+		material := command.material
 
 		//set pipeline state not needed for dx11 
 		set_primitive_topology_dx11(device,D3D11.PRIMITIVE_TOPOLOGY.TRIANGLELIST)
+
 		//context->IASetInputLayout(m_pInputLayout.Get());
 		//sets constants
-		constant_matrix_buffer_slice := []ConstantBuffer(float4x4){const_buf_matrix_gpu}
-		set_constant_buffers(device,0,float4x4,constant_matrix_buffer_slice)
+		//constant_matrix_buffer_slice := []ConstantBuffer(float4x4){const_buf_matrix_gpu}
+	//	set_constant_buffers(device,0,float4x4,constant_matrix_buffer_slice)
+
+
+
+
+		//(^D3D11.IDeviceContext)(device.con.ptr)->VSSetConstantBuffers(0,1,(^^D3D11.IBuffer)(&const_buf_matrix_gpu.ptr))
+		(^D3D11.IDeviceContext)(device.con.ptr)->VSSetShaderResources(0,1,(^^D3D11.IShaderResourceView)(&const_buf_matrix_gpu.srv_ptr))
+		//(^D3D11.IDeviceContext)(device.con.ptr)->(0,1,(^^D3D11.IBuffer)(&const_buf_matrix_gpu.ptr))
+		//(^IDeviceContext)(device.con.ptr)->PSSetConstantBuffers(start_slot,num_buffers,&buffers[0])
 
 		//set buffers for stages
-		/*
-		strides : con.Buffer(u32) = buf_init(1,u32)
-		offsets : con.Buffer(u32) = buf_init(1,u32)
-		defer{
-			buf_free(&offsets)
-			buf_free(&strides)
-		}
-		*/
-
 		if buf_len(geo.buffers) > 0{
 			set_vertex_buffers_dx11(device,0,1,transmute([]^D3D11.IBuffer)(geo.buffers.buffer[:]),geo.buffers_strides.buffer[:],geo.buffers_offsets.buffer[:])
 		}
-
-		//for buf in geo.buffers.buffer{
-//			set_vertex_buffers(device,0,1,buf.buffer,buf.stride,buf.count)
-		//}
-		//defer{buf_clear(&temp_working_vertex_buffers)}
-		//set_vertex_buffers(device,0,1,temp_working_vertex_buffers.buffer[:],strides.buffer[:],offsets.buffer[:])
-		//set_vertex_buffers(device,0,1,temp_working_vertex_buffers.buffer[:],strides.buffer[:],offsets.buffer[:])
 
 		//than execute draw commands
 		if command.is_indexed{
@@ -299,12 +286,10 @@ gbuffer_execute_dx11 ::  proc(data : rawptr){
 			index_count : u32 = u32(geo.index_count)
 			start_index_location : u32 = u32(geo.offset)
 			base_vertex_location : i32 = 0
-			draw_indexed(device,index_count,start_index_location,base_vertex_location)
+//			draw_indexed(device,index_count,start_index_location,base_vertex_location)
 		}else{
-			draw(device,u32(geo.count), u32(geo.offset))
+//			draw(device,u32(geo.count), u32(geo.offset))
 		}
-
-		//end command list
 	}
 }
 
@@ -446,8 +431,7 @@ init_renderers ::  proc(device : Device){
 	first_ele_ptr := gpu_matrix_buffer->get_pointer_at_offset()
 	//first_ele_ptr := &matrix_gpu_buffer.buffer[0]
 
-	const_buf_matrix_gpu = init_constant_buffer_structured(device,m.float4x4,first_ele_ptr,MAX_STRUCT_BUFFER_SIZE * size_of(m.float4x4))
-	init_temp_mem()
+	const_buf_matrix_gpu = init_buffer_structured(device,m.float4x4,first_ele_ptr,MAX_STRUCT_BUFFER_SIZE * size_of(m.float4x4))
 	def_renderer.gbuff_data.device = device
 	def_renderer.gbuff_data.render_targets = make(map[string]RenderTarget)
 	def_renderer.gbuff_data.depth_stencils = make(map[string]DepthStencil)

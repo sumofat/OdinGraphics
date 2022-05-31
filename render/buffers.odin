@@ -42,6 +42,14 @@ get_pointer_at_offset :: proc(this : ^MatrixBuffer,offset : u64 = 0)-> ^m.float4
 	return &this.buf.buffer[offset]
 }
 
+
+
+StructuredBuffer :: struct($T : typeid){
+	data : (T),
+	buf_ptr : rawptr, 
+	srv_ptr : rawptr,
+}
+
 ConstantBuffer :: struct($T : typeid){
 	data : (T),
 	ptr : rawptr, 
@@ -96,8 +104,8 @@ init_constant_buffer_dx11 ::  proc(device : Device,$T : typeid,const_data : ^T,b
 	cb_desc :  BUFFER_DESC
 	cb_desc.ByteWidth = byte_size
 	cb_desc.Usage = USAGE.DYNAMIC
-	cb_desc.BindFlags = CONSTANT_BUFFER
-	cb_desc.CPUAccessFlags = CPU_ACCESS_WRITE
+	cb_desc.BindFlags = .CONSTANT_BUFFER
+	cb_desc.CPUAccessFlags = .CPU_ACCESS_WRITE
 	cb_desc.MiscFlags = 0
 	cb_desc.StructureByteStride = 0
 
@@ -121,15 +129,14 @@ init_constant_buffer :: proc(device : Device,$T : typeid,const_data : ^T,byte_si
 	return result
 }
 
-init_constant_buffer_structured_dx11 ::  proc(device : Device,$T : typeid,const_data : ^T,byte_size : u32)-> ConstantBuffer(T){
+init_buffer_structured_dx11 ::  proc(device : Device,$T : typeid,const_data : ^T,byte_size : u32)-> StructuredBuffer(T){
 	using D3D11
-	result : ConstantBuffer(T)
+	result : StructuredBuffer(T)
 
-	// Define the constant data used to communicate with shaders.
 	cb_desc :  BUFFER_DESC
 	cb_desc.ByteWidth = byte_size
 	cb_desc.Usage = USAGE.DYNAMIC
-	cb_desc.BindFlags = BIND_FLAG.SHADER_RESOURCE//BIND_FLAG.CONSTANT_BUFFER
+	cb_desc.BindFlags = BIND_FLAG.SHADER_RESOURCE
 	cb_desc.CPUAccessFlags = CPU_ACCESS_FLAG.WRITE
 	cb_desc.MiscFlags = RESOURCE_MISC_FLAG.BUFFER_STRUCTURED
 	cb_desc.StructureByteStride = size_of(T)
@@ -140,15 +147,26 @@ init_constant_buffer_structured_dx11 ::  proc(device : Device,$T : typeid,const_
 	init_data.SysMemSlicePitch = 0
 	buffer_ptr : ^IBuffer	
 	hresult := (^IDevice)(device.ptr)->CreateBuffer(&cb_desc,&init_data,&buffer_ptr)
-	result.ptr = buffer_ptr
+	result.buf_ptr = buffer_ptr
 	assert(hresult == 0)
+	srv_ptr : ^IShaderResourceView
+	srv_desc : SHADER_RESOURCE_VIEW_DESC
+	srv_desc.Format = DXGI.FORMAT.UNKNOWN
+	srv_desc.ViewDimension = SRV_DIMENSION.BUFFER
+	srv_desc.Buffer.FirstElement = 0
+	srv_desc.Buffer.NumElements = 8
+
+	hresult = (^IDevice)(device.ptr)->CreateShaderResourceView(buffer_ptr, &srv_desc, &srv_ptr);
+	result.srv_ptr = srv_ptr
+	assert(hresult == 0)
+
 	return result
 }
 
-init_constant_buffer_structured :: proc(device : Device,$T : typeid,const_data : ^T,byte_size : u32)-> ConstantBuffer(T){
-	result : ConstantBuffer(T)
+init_buffer_structured :: proc(device : Device,$T : typeid,const_data : ^T,byte_size : u32)-> StructuredBuffer(T){
+	result : StructuredBuffer(T)
 	when RENDERER == RENDER_TYPE.DX11{
-		result = init_constant_buffer_structured_dx11(device,T,const_data,byte_size)
+		result = init_buffer_structured_dx11(device,T,const_data,byte_size)
 	}
 	return result
 }
